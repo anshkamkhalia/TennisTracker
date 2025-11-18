@@ -1,3 +1,5 @@
+# records videos and saves to directories
+
 import cv2 as cv
 import os
 import time
