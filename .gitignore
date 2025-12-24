@@ -1,0 +1,3 @@
+venv/
+*.DS_Store
+outputs/run.mp4
