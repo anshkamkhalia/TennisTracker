@@ -158,7 +158,7 @@ for dir in dirs:
 
             # create augmented copies
             if dir == "ready_position":
-                for _ in range(0,30):
+                for _ in range(0,65):
                     X_train_0.append(augment_keypoints(pose_frame))
                     y_train_0.append(0)
             else:
