@@ -81,6 +81,12 @@ neutrality.compile(
     metrics=['accuracy']
 )
 
+# higher weightage
+class_weights = {
+    0: 5.0, 
+    1: 1.0,
+}
+
 neutrality.fit(
     X_train,
     y_train,
