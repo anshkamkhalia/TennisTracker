@@ -1,3 +1,3 @@
 # todo
 
-make a classifier for neutral positions
+add slices/volleys
