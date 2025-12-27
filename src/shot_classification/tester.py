@@ -8,7 +8,7 @@ import cv2 as cv                                        # video handling
 from ultralytics import YOLO                            # bounding boxes
 import numpy as np                                      # computations
 
-i = 2 # either video 1 or 2
+i = 3 # index of video to predict on
 
 # key mapping - will add more later
 LABELS = {
@@ -72,6 +72,7 @@ frame_index = 0 # to keep track of current frame
 last_pred_frame = -999  # initialize far back so no text at start
 fps = 30
 state = None # will be 0 (neutral) or 1 (swinging)
+output_class = -1 # forehand (0) or backhand (1)
 
 while True:
     frame_index += 1
@@ -180,29 +181,46 @@ while True:
         previous_prediction = text # update
         last_pred_frame = frame_index  # mark when this prediction occurred
 
-        frame_buffer = frame_buffer[5:]  # keep only the remaining frames
+        frame_buffer = frame_buffer[30:]  # keep only the remaining frames
 
     if frame_index - last_pred_frame <= 40:
         display_text = previous_prediction
     else:
         display_text = "neutral"
 
-    # write annotated frame to output video
-    org = (x1, max(20, y1 - 10))
+    # write annotated frame to output video (top-right corner)
+
     font = cv.FONT_HERSHEY_SIMPLEX
-    font_scale = 1.1
+    font_scale = 1
     thickness = 2
-    color = (0, 0, 255) if display_text == "neutral" else (0, 255, 0)
+
+    # color based on shot type
+    if output_class == "forehand":
+        color = (255, 191, 0)      # greenish
+    elif output_class == "backhand":
+        color = (166, 255, 0)      # blueish
+    else:
+        color = (0, 0, 255)      # red / fallback
 
     (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
+
+    # top-right position with padding
+    padding = 10
+    org = (
+        frame.shape[1] - text_w - padding,
+        text_h + padding
+    )
+
+    # background rectangle
     cv.rectangle(
         frame,
-        (org[0] - 10, org[1] - text_h - 10),
-        (org[0] + text_w + 10, org[1] + baseline + 10),
+        (org[0] - padding, org[1] - text_h - padding),
+        (org[0] + text_w + padding, org[1] + baseline + padding),
         (0, 0, 0),
         -1
     )
 
+    # text
     cv.putText(
         frame,
         display_text,
