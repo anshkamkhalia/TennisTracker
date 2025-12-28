@@ -5,12 +5,15 @@ import pyttsx3
 import time
 
 # set label
-label = "backhand"
+label = "slice"
 
 # output directories
 base_dir = "data/shot-classification"
 dirs = {"forehand": os.path.join(base_dir, "forehand"),
-        "backhand": os.path.join(base_dir, "backhand"),}
+        "backhand": os.path.join(base_dir, "backhand"),
+        "slice": os.path.join(base_dir, "slice"),
+        "volley": os.path.join(base_dir, "volley"),
+    }
 out_dir = dirs.get(label)
 if out_dir is None:
     raise ValueError("bad label")

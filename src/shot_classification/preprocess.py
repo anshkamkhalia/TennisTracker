@@ -20,6 +20,7 @@ DELAY = 26
 LABELS = {
     "forehand": 0,
     "backhand": 1,
+    "slice": 2,
 }
 
 # augmentation function
@@ -228,17 +229,17 @@ def preprocess(
 
     return X_train_local, y_train_local, X_test_local, y_test_local
 
-# utilize functions to preprocess data
+# utilize functions to preprocess data 
 # wrap in main() to prevent bootstrapping
 def main():
-    shots = ["forehand", "backhand"]
+    shots = ["forehand", "backhand", "slice"]
 
     # use processpoolexecutor to speed up
     with ProcessPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(preprocess,
                                    path=shot,
                                    shot_type=shot,
-                                   n_copies=25,
+                                   n_copies=30 if "slice" not in shot or "volley" not in shot else 15,
                                    save=True,
                                    split=True)
                    for shot in shots]

@@ -1,19 +1,20 @@
 # tests the model on actual videos
 
-from tensorflow.keras.saving import load_model          # load serialized model
-from model import Attention, ShotClassifier             # custom classes
-from neutral_model import Attention, NeutralIdentifier  # more custom classes
-import mediapipe as mp                                  # keypoint extraction
-import cv2 as cv                                        # video handling
-from ultralytics import YOLO                            # bounding boxes
-import numpy as np                                      # computations
+from tensorflow.keras.saving import load_model                            # load serialized model
+from model import Attention, ShotClassifier, SequenceAttention            # custom classes
+from neutral_model import Attention, NeutralIdentifier                    # more custom classes
+import mediapipe as mp                                                    # keypoint extraction
+import cv2 as cv                                                          # video handling
+from ultralytics import YOLO                                              # bounding boxes
+import numpy as np                                                        # computations
 
-i = 3 # index of video to predict on
+i = 1 # index of video to predict on
 
 # key mapping - will add more later
 LABELS = {
     "forehand": 0,
     "backhand": 1,
+    "slice": 2,
 }
 
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
@@ -27,6 +28,7 @@ video_path = f"data/court-level-videos/videoplayback{i}.mp4"
 shot_classifier = load_model(shot_model_path, custom_objects={
     "ShotClassifier": ShotClassifier,
     "Attention": Attention,
+    "SequenceAttention": SequenceAttention,
 })
 
 neutral_identifier = load_model(neutral_model_path, custom_objects={

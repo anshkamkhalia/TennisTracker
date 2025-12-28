@@ -1,6 +1,6 @@
 # trains and exports a shot classification model
 
-from model import ShotClassifier, Attention
+from model import ShotClassifier, Attention, SequenceAttention
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
@@ -42,12 +42,39 @@ y_test_tb = np.load(os.path.join(
     LANDMARKS, "y_test_shot_classification_backhand.npy"
 ))
 
-# combine datasets
-X_train = np.concatenate([X_train_tf, X_train_tb], axis=0)
-y_train = np.concatenate([y_train_tf, y_train_tb], axis=0)
+# load saved data -> slices
+X_train_s = np.load(os.path.join(
+    LANDMARKS, "X_train_shot_classification_slice.npy"
+))
+y_train_s = np.load(os.path.join(
+    LANDMARKS, "y_train_shot_classification_slice.npy"
+))
 
-X_test = np.concatenate([X_test_tf, X_test_tb], axis=0)
-y_test = np.concatenate([y_test_tf, y_test_tb], axis=0)
+X_test_s = np.load(os.path.join(
+    LANDMARKS, "X_test_shot_classification_slice.npy"
+))
+y_test_s = np.load(os.path.join(
+    LANDMARKS, "y_test_shot_classification_slice.npy"
+))
+
+# combine datasets
+X_train = np.concatenate(
+    [X_train_tf, X_train_tb, X_train_s],
+    axis=0
+)
+y_train = np.concatenate(
+    [y_train_tf, y_train_tb, y_train_s],
+    axis=0
+)
+
+X_test = np.concatenate(
+    [X_test_tf, X_test_tb, X_test_s],
+    axis=0
+)
+y_test = np.concatenate(
+    [y_test_tf, y_test_tb, y_test_s],
+    axis=0
+)
 
 # shuffle train
 perm = np.random.permutation(len(X_train))
@@ -94,6 +121,23 @@ shot_classifier.compile(
     loss="sparse_categorical_crossentropy", # multiple labels
     metrics=['accuracy']
 )
+
+# class_weight = {
+#     0: 1.3,   # forehand 
+#     1: 1.3,   # backhand
+#     2: 1.15    # slice 
+# }
+
+# fit model
+# shot_classifier.fit(
+#     X_train,
+#     y_train,
+#     epochs=50,
+#     callbacks=[reduce_lr, model_checkpoint, early_stopping],
+#     batch_size=16,
+#     validation_data=(X_test, y_test),
+#     class_weight=class_weight
+# )
 
 # fit model
 shot_classifier.fit(

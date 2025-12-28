@@ -1,3 +1,3 @@
 # todo
 
-add slices/volleys
+combine slices and volleys into one class
