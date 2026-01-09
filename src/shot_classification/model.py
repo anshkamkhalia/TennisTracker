@@ -47,7 +47,7 @@ class ShotClassifier(Model):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__() # inherit from Model() class
+        super(*args, **kwargs).__init__() # inherit from Model() class
 
         # create architecture
 
@@ -66,8 +66,9 @@ class ShotClassifier(Model):
 
         self.dropout2 = Dropout(0.4)
         self.dense3 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
+        self.dense4 = Dense(256, activation="relu", kernel_regularizer=l2(1e-4))
 
-        self.out = Dense(3, activation="softmax") # subject to change (n_classes)
+        self.out = Dense(4, activation="softmax") # subject to change (n_classes)
 
     def call(self, inputs, training=False):
         # inputs: (batch, timesteps, features)
@@ -76,6 +77,9 @@ class ShotClassifier(Model):
         # x = self.attention1(x)
         x = self.bn_lstm1(x)
         x = self.dropout(x, training=training)
+
+        # x = self.bn_lstm2(x)
+        # x = self.dropout2(x)
 
         x = self.td_dense(x)
 

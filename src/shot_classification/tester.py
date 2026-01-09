@@ -8,13 +8,14 @@ import cv2 as cv                                                          # vide
 from ultralytics import YOLO                                              # bounding boxes
 import numpy as np                                                        # computations
 
-i = 4 # index of video to predict on
+i = 1 # index of video to predict on
 
 # key mapping - will add more later
 LABELS = {
     "forehand": 0,
     "backhand": 1,
-    "slice": 2,
+    "slice_volley": 2,
+    "serve_overhead": 3,
 }
 
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}

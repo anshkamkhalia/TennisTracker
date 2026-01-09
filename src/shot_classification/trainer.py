@@ -12,7 +12,7 @@ LANDMARKS = "data/shot-classification/landmarks" # root for landmark data
 # the following code is very stupid
 # im just too lazy to change it
 
-# load saved data -> topspin forehands
+# load saved data -> forehands
 X_train_tf = np.load(os.path.join(
     LANDMARKS, "X_train_shot_classification_forehand.npy"
 ))
@@ -27,7 +27,7 @@ y_test_tf = np.load(os.path.join(
     LANDMARKS, "y_test_shot_classification_forehand.npy"
 ))
 
-# load saved data -> topspin backhands
+# load saved data -> backhands
 X_train_tb = np.load(os.path.join(
     LANDMARKS, "X_train_shot_classification_backhand.npy"
 ))
@@ -42,39 +42,64 @@ y_test_tb = np.load(os.path.join(
     LANDMARKS, "y_test_shot_classification_backhand.npy"
 ))
 
-# load saved data -> slices
-X_train_s = np.load(os.path.join(
-    LANDMARKS, "X_train_shot_classification_slice.npy"
+# load saved data -> slices + volleys
+X_train_sv = np.load(os.path.join(
+    LANDMARKS, "X_train_shot_classification_slice_volley.npy"
 ))
-y_train_s = np.load(os.path.join(
-    LANDMARKS, "y_train_shot_classification_slice.npy"
+y_train_sv = np.load(os.path.join(
+    LANDMARKS, "y_train_shot_classification_slice_volley.npy"
 ))
 
-X_test_s = np.load(os.path.join(
-    LANDMARKS, "X_test_shot_classification_slice.npy"
+X_test_sv = np.load(os.path.join(
+    LANDMARKS, "X_test_shot_classification_slice_volley.npy"
 ))
-y_test_s = np.load(os.path.join(
-    LANDMARKS, "y_test_shot_classification_slice.npy"
+y_test_sv = np.load(os.path.join(
+    LANDMARKS, "y_test_shot_classification_slice_volley.npy"
+))
+
+# load saved data -> serves + overheads
+X_train_so = np.load(os.path.join(
+    LANDMARKS, "X_train_shot_classification_serve_overhead.npy"
+))
+y_train_so = np.load(os.path.join(
+    LANDMARKS, "y_train_shot_classification_serve_overhead.npy"
+))
+
+X_test_so = np.load(os.path.join(
+    LANDMARKS, "X_test_shot_classification_serve_overhead.npy"
+))
+y_test_so = np.load(os.path.join(
+    LANDMARKS, "y_test_shot_classification_serve_overhead.npy"
 ))
 
 # combine datasets
-X_train = np.concatenate(
-    [X_train_tf, X_train_tb, X_train_s],
-    axis=0
-)
-y_train = np.concatenate(
-    [y_train_tf, y_train_tb, y_train_s],
-    axis=0
-)
+X_train = np.concatenate([
+    X_train_tf,
+    X_train_tb,
+    X_train_sv,
+    X_train_so
+], axis=0)
 
-X_test = np.concatenate(
-    [X_test_tf, X_test_tb, X_test_s],
-    axis=0
-)
-y_test = np.concatenate(
-    [y_test_tf, y_test_tb, y_test_s],
-    axis=0
-)
+y_train = np.concatenate([
+    y_train_tf,
+    y_train_tb,
+    y_train_sv,
+    y_train_so
+], axis=0)
+
+X_test = np.concatenate([
+    X_test_tf,
+    X_test_tb,
+    X_test_sv,
+    X_test_so
+], axis=0)
+
+y_test = np.concatenate([
+    y_test_tf,
+    y_test_tb,
+    y_test_sv,
+    y_test_so
+], axis=0)
 
 # shuffle train
 perm = np.random.permutation(len(X_train))
@@ -145,6 +170,6 @@ shot_classifier.fit(
     y_train,
     epochs=50,
     callbacks=[reduce_lr, model_checkpoint, early_stopping],
-    batch_size=16,
+    batch_size=64,
     validation_data=(X_test, y_test),
 )

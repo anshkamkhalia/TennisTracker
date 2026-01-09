@@ -6,7 +6,7 @@ i = 4 # video" index to predict on
 video_path = f"data/court-level-videos/videoplayback{i}.mp4"
 
 # load trained yolo instance
-model = YOLO("runs/detect/train2/weights/best.pt")
+model = YOLO("runs/detect/train/weights/best.pt")
 
 # Run prediction on a video
 results = model.track(

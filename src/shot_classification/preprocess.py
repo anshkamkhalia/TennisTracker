@@ -20,7 +20,16 @@ DELAY = 26
 LABELS = {
     "forehand": 0,
     "backhand": 1,
-    "slice": 2,
+    "slice_volley": 2,
+    "serve_overhead": 3,
+}
+
+# copy map: number of times each class will be duplicated
+COPY_MAP = {
+    "forehand": 30,
+    "backhand": 30,
+    "slice_volley": 15,
+    "serve_overhead": 25, 
 }
 
 # augmentation function
@@ -232,14 +241,14 @@ def preprocess(
 # utilize functions to preprocess data 
 # wrap in main() to prevent bootstrapping
 def main():
-    shots = ["forehand", "backhand", "slice"]
+    shots = ["forehand", "backhand", "slice_volley", "serve_overhead"]
 
     # use processpoolexecutor to speed up
     with ProcessPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(preprocess,
                                    path=shot,
                                    shot_type=shot,
-                                   n_copies=30 if "slice" not in shot or "volley" not in shot else 15,
+                                   n_copies=COPY_MAP[shot],
                                    save=True,
                                    split=True)
                    for shot in shots]
