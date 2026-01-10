@@ -31,7 +31,7 @@ class NeutralIdentifier(Model):
     """
 
     def __init__(self, *args, **kwargs):
-        super(*args, **kwargs).__init__() # inherit from Model() class
+        super().__init__(**kwargs) # inherit from Model() class
 
         # convolutional layers
         self.conv1 = Conv2D(filters=32, kernel_size=(3,3), activation='relu', padding='same')

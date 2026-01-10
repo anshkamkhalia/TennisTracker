@@ -47,7 +47,7 @@ class ShotClassifier(Model):
     """
 
     def __init__(self, *args, **kwargs):
-        super(*args, **kwargs).__init__() # inherit from Model() class
+        super().__init__(**kwargs) # inherit from Model() class
 
         # create architecture
 
