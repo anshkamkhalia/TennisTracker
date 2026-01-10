@@ -8,7 +8,7 @@ import cv2 as cv                                                          # vide
 from ultralytics import YOLO                                              # bounding boxes
 import numpy as np                                                        # computations
 
-i = 1 # index of video to predict on
+i = 2 # index of video to predict on
 
 # key mapping - will add more later
 LABELS = {

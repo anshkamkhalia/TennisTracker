@@ -26,8 +26,8 @@ LABELS = {
 
 # copy map: number of times each class will be duplicated
 COPY_MAP = {
-    "forehand": 30,
-    "backhand": 30,
+    "forehand": 40,
+    "backhand": 40,
     "slice_volley": 15,
     "serve_overhead": 25, 
 }

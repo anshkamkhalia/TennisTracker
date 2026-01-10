@@ -56,15 +56,18 @@ class ShotClassifier(Model):
         self.bn_lstm1 = Bidirectional(LSTM(512, return_sequences=True, recurrent_regularizer=l2(1e-4), activation="tanh"))
         self.dropout = Dropout(0.3)
 
+        self.bn_lstm2 = Bidirectional(LSTM(256, return_sequences=True, recurrent_regularizer=l2(1e-4), activation="tanh"))
+        self.dropout2 = Dropout(0.3)
+
         self.td_dense = TimeDistributed(Dense(256, activation="relu", kernel_regularizer=l2(1e-4)))
 
-        self.bn_lstm2 = Bidirectional(LSTM(128, return_sequences=True, recurrent_regularizer=l2(1e-4), activation="tanh"))
+        self.bn_lstm3 = Bidirectional(LSTM(128, return_sequences=True, recurrent_regularizer=l2(1e-4), activation="tanh"))
         self.attention2 = Attention()
 
         self.dense1 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
         self.layer_norm = LayerNormalization()
 
-        self.dropout2 = Dropout(0.4)
+        self.dropout3 = Dropout(0.4)
         self.dense3 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
         self.dense4 = Dense(256, activation="relu", kernel_regularizer=l2(1e-4))
 
@@ -78,8 +81,8 @@ class ShotClassifier(Model):
         x = self.bn_lstm1(x)
         x = self.dropout(x, training=training)
 
-        # x = self.bn_lstm2(x)
-        # x = self.dropout2(x)
+        x = self.bn_lstm2(x)
+        x = self.dropout2(x)
 
         x = self.td_dense(x)
 
@@ -89,7 +92,7 @@ class ShotClassifier(Model):
         x = self.dense1(x)
         x = self.layer_norm(x, training=training)
 
-        x = self.dropout2(x, training=training)
+        x = self.dropout3(x, training=training)
         x = self.dense3(x)
 
         return self.out(x)

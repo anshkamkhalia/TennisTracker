@@ -136,7 +136,7 @@ reduce_lr = ReduceLROnPlateau(
 # early stopping - stops if model has not been improving
 early_stopping = EarlyStopping(
     monitor='val_accuracy',      # what to monitor
-    patience=5,             # how many epochs to wait before stopping
+    patience=10,             # how many epochs to wait before stopping
     restore_best_weights=True
 )
 
@@ -168,7 +168,7 @@ shot_classifier.compile(
 shot_classifier.fit(
     X_train,
     y_train,
-    epochs=50,
+    epochs=75,
     callbacks=[reduce_lr, model_checkpoint, early_stopping],
     batch_size=64,
     validation_data=(X_test, y_test),
