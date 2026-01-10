@@ -86,7 +86,7 @@ class ShotClassifier(Model):
 
         x = self.td_dense(x)
 
-        x = self.bn_lstm2(x)
+        x = self.bn_lstm3(x)
         x = self.attention2(x)  # (batch, features)
 
         x = self.dense1(x)
