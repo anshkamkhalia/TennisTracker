@@ -2,7 +2,7 @@
 
 from ultralytics import YOLO
 
-i = 4 # video" index to predict on
+i = 5 # video" index to predict on
 video_path = f"data/court-level-videos/videoplayback{i}.mp4"
 
 # load trained yolo instance

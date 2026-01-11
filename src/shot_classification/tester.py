@@ -8,7 +8,7 @@ import cv2 as cv                                                          # vide
 from ultralytics import YOLO                                              # bounding boxes
 import numpy as np                                                        # computations
 
-i = 1 # index of video to predict on
+i = 5 # index of video to predict on
 
 # key mapping - will add more later
 LABELS = {
@@ -79,10 +79,16 @@ output_class = -1 # forehand (0) or backhand (1)
 
 while True:
     frame_index += 1
-    ret, frame= cap.read()
+    ret, frame = cap.read()
     if not ret: break # breaks if last frame
 
-    frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize frame to 720p
+    if frame_index % 2 == 0 and i == 5:
+        continue
+
+    if i != 5:
+        frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize frame to 720p
+    else:
+        frame = cv.resize(frame, (1280, 720)) # without interpolation
 
     # crop human out using yolo
     results = detector.predict(
