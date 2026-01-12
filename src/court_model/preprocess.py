@@ -1,3 +1,5 @@
+# exports data as npy files for court keypoint detection
+
 import cv2 as cv
 import os
 import json

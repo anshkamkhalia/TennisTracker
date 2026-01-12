@@ -1,7 +1,7 @@
 # creates a relatively simple model to track keypoints on tennis courts
 
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, Conv2D, Flatten, BatchNormalization, Dropout
+from tensorflow.keras.layers import Dense, Conv2D, GlobalAveragePooling2D, BatchNormalization, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.saving import register_keras_serializable
@@ -17,12 +17,12 @@ class CourtDetector(Model):
         super().__init__(**kwargs) # inherit from model class
 
         # architecture
-        self.conv1 = Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3))
-        self.conv2 = Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
-        self.conv3 = Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
+        self.conv1 = Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2)
+        self.conv2 = Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2)
+        self.conv3 = Conv2D(1278, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
         
         self.bn1 = BatchNormalization()
-        self.flatten = Flatten()
+        self.gap = GlobalAveragePooling2D()
         self.dp = Dropout(0.25)
         
         self.dense1 = Dense(256, activation="relu", kernel_regularizer=l2(1e-3))
@@ -41,7 +41,7 @@ class CourtDetector(Model):
         x = self.conv3(x)
         
         # flatten and dropout
-        x = self.flatten(x)
+        x = self.gap(x)
         x = self.dp(x, training=training)
         
         # dense layers

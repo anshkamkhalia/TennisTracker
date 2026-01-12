@@ -7,7 +7,7 @@ import glob
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
 # directories
-dataset_dir = "data/court-model/datasets"
+dataset_dir = "data/court-model/data/datasets"
 
 # load batch files
 X_files = sorted(glob.glob(f"{dataset_dir}/X_batch_*.npy"))
@@ -23,7 +23,7 @@ model.compile(optimizer=optimizer, loss=loss_fn, metrics=['mae'])
 
 # model checkpoint - saves best model during training
 model_checkpoint = ModelCheckpoint(
-    'serialized_models/shot_classifier.keras',         # file to save
+    'serialized_models/court_keypoint_detector.keras',         # file to save
     monitor='val_loss',      # what to monitor
     save_best_only=True,     # only save when its the best
     verbose=1
@@ -46,7 +46,7 @@ early_stopping = EarlyStopping(
 )
 # training loop
 EPOCHS = 50
-BATCH_SIZE = 16
+BATCH_SIZE = 4
 
 for epoch in range(EPOCHS):
     print(f"\nEpoch {epoch+1}/{EPOCHS}")
@@ -66,11 +66,12 @@ for epoch in range(EPOCHS):
         X_batch = X_batch.astype('float32')
         y_batch = y_batch.astype('float32')
         img_h, img_w = X_batch.shape[1], X_batch.shape[2]
+        y_batch = y_batch.reshape(y_batch.shape[0], -1)
         y_batch[:, ::2] /= img_w  # normalize x
         y_batch[:, 1::2] /= img_h  # normalize y
 
         # train on this batch
-        history = model.fit(X_batch, y_batch, batch_size=BATCH_SIZE, verbose=0, validation_split=0.1)
+        history = model.fit(X_batch, y_batch, batch_size=BATCH_SIZE, verbose=1, validation_split=0.1, callbacks=[early_stopping, model_checkpoint, reduce_lr])
         batch_loss = history.history['loss'][0]
         epoch_loss.append(batch_loss)
 

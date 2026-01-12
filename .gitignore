@@ -2,3 +2,4 @@ venv/
 *.DS_Store
 outputs/
 data/
+court_data.zip
