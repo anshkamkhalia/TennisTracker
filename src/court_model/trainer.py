@@ -1,4 +1,5 @@
 # trains the model on saved batches to detect court keypoints
+# DEPRECATED -> using classical cv for court detection
 
 import numpy as np
 import tensorflow as tf

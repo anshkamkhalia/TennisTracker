@@ -1,6 +1,6 @@
 # todo
 
-ball tracking:
-- improve accuracy (flickering)
-- try using a custom cnn with augmented copies
-- use hough transform + cnn
+2d court modeling:
+court keypoint detection:
+- dont use ml, data sucks
+- try classical cv
