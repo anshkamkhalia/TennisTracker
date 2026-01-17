@@ -1,6 +1,3 @@
-# todo
+# TennisTracker
 
-2d court modeling:
-court keypoint detection:
-- dont use ml, data sucks
-- try classical cv
+will update readme once project is finished/before hackathon (july 2026)

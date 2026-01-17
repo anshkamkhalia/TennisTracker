@@ -4,6 +4,7 @@ from ultralytics import YOLO
 import cv2 as cv
 import numpy as np
 import sys
+from line_intersection import line_intersection
 
 i = sys.argv[2]  # video index
 video_path = f"data/court-level-videos/videoplayback{i}.mp4"
@@ -33,14 +34,128 @@ MAX_TRAIL_LENGTH = 50
 frame_index = 0
 keypoints = None
 
+clicked_points = []
+
+def get_points(event, x, y, flags, param):
+    if event == cv.EVENT_LBUTTONDOWN:
+        clicked_points.append((x, y))
+        print(f"point registered: {(x, y)}")
+
+ret, frame = cap.read()
+frame = cv.resize(frame, (1280, 720))
+
+cv.imshow("click points", frame)             # create window first
+cv.setMouseCallback("click points", get_points)  # then register callback
+
+while True:
+    display = frame.copy()
+    for pt in clicked_points:
+        cv.circle(display, pt, 5, (0, 0, 255), -1)
+    cv.imshow("click points", display)
+
+    key = cv.waitKey(1) & 0xFF
+    if key == 27 or len(clicked_points) >= 4:  # ESC or 4 points
+        break
+
+cv.destroyAllWindows()
+cap.release()
+
+# mini-court size (HxW)
+court_height = 300
+court_width = 150
+padding = 20
+
+# create the mini-court canvas
+court_canvas = np.zeros((court_height, court_width, 3), dtype=np.uint8)
+
+# draw court lines (green)
+cv.rectangle(
+    court_canvas,
+    (0, 0),
+    (court_width - 1, court_height - 1),
+    (0, 255, 0),
+    2
+)
+
+net_y = court_height // 2
+margin = court_width // 5
+service_box_length = int((21 / 39) * (court_height // 2))
+
+# net
+cv.line(court_canvas, (0, net_y), (court_width, net_y), (0, 255, 0), 2)
+
+# singles lines
+cv.line(court_canvas, (margin, 0), (margin, court_height), (0, 255, 0), 2)
+cv.line(court_canvas, (court_width - margin, 0),
+        (court_width - margin, court_height), (0, 255, 0), 2)
+
+# service box lines
+cv.line(
+    court_canvas,
+    (margin, net_y - service_box_length),
+    (court_width - margin, net_y - service_box_length),
+    (0, 255, 0),
+    2
+)
+cv.line(
+    court_canvas,
+    (margin, net_y + service_box_length),
+    (court_width - margin, net_y + service_box_length),
+    (0, 255, 0),
+    2
+)
+
+# center service line (TEE)
+cv.line(
+    court_canvas,
+    (court_width // 2, net_y - service_box_length),
+    (court_width // 2, net_y + service_box_length),
+    (0, 255, 0),
+    2
+)
+
+padded_court_height = court_height + 2 * padding
+padded_court_width = court_width + 2 * padding
+
+padded_court = np.zeros(
+    (padded_court_height, padded_court_width, 3),
+    dtype=np.uint8
+)
+
+padded_court[
+    padding:padding + court_height,
+    padding:padding + court_width
+] = court_canvas
+
+# precompute homography if 4 points clicked
+if len(clicked_points) == 4:
+    src_pts = np.array(clicked_points, dtype=np.float32)
+    dst_pts = np.array([
+        [0,0],
+        [court_width-1,0],
+        [court_width-1,court_height-1],
+        [0,court_height-1]
+    ], dtype=np.float32)
+    H, _ = cv.findHomography(src_pts, dst_pts)
+else:
+    H = None
+
+# load video
+cap = cv.VideoCapture(video_path)
+    
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
+    cx = None
+    cy = None
+
     frame_index += 1
     if frame_index % 2 == 0 and i in videos60fps:
         continue
+
+    frame = cv.resize(frame, (1280, 720))
 
     # predict on frame
     results = model.predict(
@@ -95,35 +210,88 @@ while True:
 
         cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1)
 
-    # keypoint detections
+    # keypoint detections - on hold for now
 
-    frame = cv.resize(frame, (1280, 720)) # resize frame
-    frame = cv.GaussianBlur(frame, (5, 5), 0) # gaussian blur to clear noise
+    # frame = cv.resize(frame, (1280, 720)) # resize frame
+    # blurred_frame = cv.GaussianBlur(frame, (5, 5), 0) # gaussian blur to clear noise
 
-    # convert to hsv <- low saturation = white = court lines
-    hsv_frame = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    # # convert to hsv <- low saturation = white = court lines
+    # hsv_frame = cv.cvtColor(blurred_frame, cv.COLOR_BGR2HSV)
 
-    # create mask
-    lower = np.array([0, 0, 100])  # H, S, V
-    upper = np.array([180, 55, 255]) 
-    mask = cv.inRange(hsv_frame, lower, upper)
+    # # create mask
+    # lower = np.array([0, 0, 150])  # H, S, V
+    # upper = np.array([180, 40, 255]) 
+    # mask = cv.inRange(hsv_frame, lower, upper)
 
-    # apply mask
-    masked_frame = cv.bitwise_and(hsv_frame, hsv_frame, mask=mask)
+    # # apply mask
+    # masked_frame = cv.bitwise_and(hsv_frame, hsv_frame, mask=mask)
 
-    edges = cv.Canny(
-        masked_frame,
-        threshold1=50,
-        threshold2=120,
-        apertureSize=3
-    )
+    # # morphology
+    # kernel_open = cv.getStructuringElement( # opening kernel for discarding non-lines
+    #     cv.MORPH_ELLIPSE,
+    #     (3,3) # change to 3x3 or 7x7 based on performance
+    # )
+
+    # mask_opened = cv.morphologyEx( # apply to mask
+    #     mask,              
+    #     cv.MORPH_OPEN,     
+    #     kernel_open,
+    # )
+
+    # kernel_close = cv.getStructuringElement( # create closing kernel for filling lines
+    #     cv.MORPH_RECT,     
+    #    (5, 5) # change to 3x3 or 7x7 based on performance
+    # )
+    
+    # mask_clean = cv.morphologyEx( # apply opening and closing
+    #     mask_opened,       
+    #     cv.MORPH_CLOSE,    
+    #     kernel_close,
+    # )
+
+    # # apply edge detection
+    # edges = cv.Canny(
+    #     mask_clean,
+    #     threshold1=45,
+    #     threshold2=110,
+    #     apertureSize=3
+    # )
+
+    # # use hough transform
+    # lines = cv.HoughLinesP(
+    #     edges,          
+    #     rho=1,          
+    #     theta=np.pi/180,
+    #     threshold=100,   
+    #     minLineLength=60,
+    #     maxLineGap=50,  
+    # )
+
+    # draw lines
+    # if lines is not None:
+    #     for x1, y1, x2, y2 in lines[:,0]:
+    #         cv.line(frame, (x1,y1), (x2,y2), (0,0,255), 2)
+
+    # assume frame is already resized to 1280x720
+    # top-right placement
+    
+   # FORCE consistent frame size
+
+    frame_h, frame_w = frame.shape[:2]
+
+    court_offset_x = frame_w - padded_court_width
+    court_offset_y = 0
+
+    frame[
+        court_offset_y:court_offset_y + padded_court_height,
+        court_offset_x:court_offset_x + padded_court_width
+    ] = padded_court
+
+    cv.imshow("frame", frame)
+    cv.waitKey(1)
 
     # write frame
     # out.write(cv.resize(frame))
-
-    # show frame - for testing
-    cv.imshow("frame", masked_frame)
-    cv.waitKey(1)
 
 cap.release()
 out.release()
