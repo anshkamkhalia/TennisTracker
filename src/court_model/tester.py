@@ -43,6 +43,7 @@ def get_points(event, x, y, flags, param):
 
 ret, frame = cap.read()
 frame = cv.resize(frame, (1280, 720))
+smoothing_trail = [] # for trajectory smoothing
 
 cv.imshow("click points", frame)             # create window first
 cv.setMouseCallback("click points", get_points)  # then register callback
@@ -63,7 +64,7 @@ cap.release()
 # mini-court size (HxW)
 court_height = 300
 court_width = 150
-padding = 20
+padding = 40
 
 # create the mini-court canvas
 court_canvas = np.zeros((court_height, court_width, 3), dtype=np.uint8)
@@ -127,29 +128,26 @@ padded_court[
     padding:padding + court_width
 ] = court_canvas
 
-# precompute homography if 4 points clicked
-if len(clicked_points) == 4:
-    src_pts = np.array(clicked_points, dtype=np.float32)
-    dst_pts = np.array([
-        [0,0],
-        [court_width-1,0],
-        [court_width-1,court_height-1],
-        [0,court_height-1]
-    ], dtype=np.float32)
-    H, _ = cv.findHomography(src_pts, dst_pts)
-else:
-    H = None
-
 # load video
 cap = cv.VideoCapture(video_path)
+cy_prev1 = None
+cy_prev2 = None
+vy_prev = None
+bounce = False
+
+# bounce detection configs
+ball_history = []        # stores (cx, cy)
+bounce_points = []       # projected minimap points
+bounce_cooldown = 0      # frames to ignore after bounce
+vy = 0
     
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    cx = None
-    cy = None
+    cx = 0
+    cy = 0
 
     frame_index += 1
     if frame_index % 2 == 0 and i in videos60fps:
@@ -158,7 +156,7 @@ while True:
     frame = cv.resize(frame, (1280, 720))
 
     # predict on frame
-    results = model.predict(
+    results = model.track(
         source=frame,
         conf=0.20,
         save=False,
@@ -194,7 +192,7 @@ while True:
 
         # compute center
         cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
+        cy = y2
 
         trail.append((cx, cy))
         if len(trail) > MAX_TRAIL_LENGTH:
@@ -272,11 +270,6 @@ while True:
     #     for x1, y1, x2, y2 in lines[:,0]:
     #         cv.line(frame, (x1,y1), (x2,y2), (0,0,255), 2)
 
-    # assume frame is already resized to 1280x720
-    # top-right placement
-    
-   # FORCE consistent frame size
-
     frame_h, frame_w = frame.shape[:2]
 
     court_offset_x = frame_w - padded_court_width
@@ -286,6 +279,70 @@ while True:
         court_offset_y:court_offset_y + padded_court_height,
         court_offset_x:court_offset_x + padded_court_width
     ] = padded_court
+
+
+    # only compute homography if user clicked all 4 points
+    if len(clicked_points) == 4:
+        # src/dst points for mapping court points into minimap points
+        src_pts = np.array(clicked_points, dtype=np.float32)
+        dst_pts = np.array([
+            [padding, padding],                               # top-left
+            [padding + court_width - 1, padding],            # top-right
+            [padding + court_width - 1, padding + court_height - 1], # bottom-right
+            [padding, padding + court_height - 1]            # bottom-left
+        ], dtype=np.float32)
+
+        # compute homography matrix between court and minimap
+        H, _ = cv.findHomography(src_pts, dst_pts)
+
+        # only update ball history if we have a detection
+        if best_box is not None:
+            cx = (x1 + x2) // 2
+            cy = y2
+
+            # append only real detections
+            ball_history.append((cx, cy))
+            if len(ball_history) > 3:
+                ball_history.pop(0)
+
+            # bounce detection: local minimum in y
+            if len(ball_history) == 3 and bounce_cooldown == 0:
+                (_, y0), (_, y1), (_, y2) = ball_history
+
+                # bounce occurs when middle point is lowest
+                if y0 > y1 and y2 > y1:
+                    bounce_x, bounce_y = ball_history[1]
+
+                    # project bounce point once
+                    pt = np.array([[[bounce_x, bounce_y]]], dtype=np.float32)
+                    projected = cv.perspectiveTransform(pt, H)
+
+                    mini_x, mini_y = projected[0, 0]
+                    bounce_points.append((int(mini_x), int(mini_y)))
+
+                    # short cooldown to avoid double-counting
+                    bounce_cooldown = 8
+
+        # countdown cooldown
+        if bounce_cooldown > 0:
+            bounce_cooldown -= 1
+
+        # draw all bounce points on minimap
+        for x, y in bounce_points:
+            cv.circle(
+                padded_court,
+                (x, y),
+                8,
+                (np.random.randint(50,230), np.random.randint(50,230), np.random.randint(50,230)),
+                -1
+            )
+
+        # overlay minimap on frame
+        frame[court_offset_y:court_offset_y + padded_court_height,
+            court_offset_x:court_offset_x + padded_court_width] = padded_court
+
+    cy_prev = cy
+    vy_prev = vy
 
     cv.imshow("frame", frame)
     cv.waitKey(1)
