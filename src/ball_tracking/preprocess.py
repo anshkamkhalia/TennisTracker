@@ -1,0 +1,101 @@
+# uses a pretrained yolo model to create labels for a custom spatiotemporal model
+
+import cv2 as cv
+import numpy as np
+from ultralytics import YOLO
+import os
+
+source_video_path = "src/ball_tracking/data" # data path
+output_path = "src/ball_tracking/data/labels" # output path (.npy files will be stored here)
+videos = os.listdir(source_video_path) # list of all video names
+
+detector = YOLO("hugging_face_best.pt") # loads ball detector (teacher model)
+
+max_jump = 80          # max pixels ball can move between frames
+conf_gap_thresh = 0.15 # confidence separation threshold
+
+# helper function
+def select_valid_box(boxes, last_center):
+    """returns the best box based on a list of candidates and the previous valid box"""
+
+    if len(boxes) == 0:
+        return None
+    
+    # sort boxes by confidence
+    boxes = sorted(boxes, key=lambda b: float(b.conf[0]), reverse=True)
+
+    # if multiple detections
+    if len(boxes) > 1:
+        c0 = float(boxes[0].conf[0])
+        c1 = float(boxes[1].conf[0])
+        if c0-c1 < conf_gap_thresh:
+            return None # ambiguous frame
+    
+    best = boxes[0]
+    x1, y1, x2, y2 = map(int(best.xyxy[0]))
+    cx = (x1+x2) // 2
+    cy = y2
+
+    if last_center is not None:
+        px, py = last_center
+        dist = np.hypot(cx-px, cy-py)
+        if dist > max_jump:
+            return None # motion too large
+        
+    return (x1, y1, x2, y2, cx, cy)
+
+# processing loop
+for filename in videos:
+
+    cap = cv.VideoCapture(os.path.join(source_video_path, filename)) # load new video
+    fps = cap.get(cv.CV_CAP_PROP_FPS) # get fps
+    X_train_local, y_train_local = [], [] # initialize to be empty every time a new video is loaded
+    video_name = filename.replace(".mp4", "") # for npy naming purposes
+
+    frame_index = 0
+    last_center = None
+
+    # video writer to save videos with discarded frames
+    # out = cv.VideoWriter(
+    #     f"{source_video_path}/edited_videos/edited_{filename}",
+    #     cv.VideoWriter_fourcc(*"mp4v"),
+    #     30,
+    #     (1280, 720)
+    # )
+
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+
+        frame_index += 1
+        if fps == 60 and frame_index % 2 == 0:
+            continue
+
+        frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize frame to 1280x720 and apply interpolation
+
+        results = detector.predict(
+            source=frame,
+            conf=0.2,
+            save=False,
+            verbose=False
+        )
+
+        boxes = results[0].boxes
+
+        selected = select_valid_box(boxes, last_center)
+
+        # discard invalid frames completely
+        if selected is None:
+            continue
+
+        x1, y1, x2, y2, cx, cy = selected
+
+        # now we trust this frame
+        X_train_local.append(frame)
+        y_train_local.append(np.array([x1, y1, x2, y2]))
+
+        last_center = (cx, cy)
+
+    # save npy file
+    np.save(os.path.join(output_path, f"X_train_{video_name}.npy"), X_train_local)
+    np.save(os.path.join(output_path, f"y_train_{video_name}.npy"), y_train_local)

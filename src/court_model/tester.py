@@ -34,99 +34,99 @@ MAX_TRAIL_LENGTH = 50
 frame_index = 0
 keypoints = None
 
-clicked_points = []
+# clicked_points = []
 
-def get_points(event, x, y, flags, param):
-    if event == cv.EVENT_LBUTTONDOWN:
-        clicked_points.append((x, y))
-        print(f"point registered: {(x, y)}")
+# def get_points(event, x, y, flags, param):
+#     if event == cv.EVENT_LBUTTONDOWN:
+#         clicked_points.append((x, y))
+#         print(f"point registered: {(x, y)}")
 
-ret, frame = cap.read()
-frame = cv.resize(frame, (1280, 720))
-smoothing_trail = [] # for trajectory smoothing
+# ret, frame = cap.read()
+# frame = cv.resize(frame, (1280, 720))
+# smoothing_trail = [] # for trajectory smoothing
 
-cv.imshow("click points", frame)             # create window first
-cv.setMouseCallback("click points", get_points)  # then register callback
+# cv.imshow("click points", frame)             # create window first
+# cv.setMouseCallback("click points", get_points)  # then register callback
 
-while True:
-    display = frame.copy()
-    for pt in clicked_points:
-        cv.circle(display, pt, 5, (0, 0, 255), -1)
-    cv.imshow("click points", display)
+# while True:
+#     display = frame.copy()
+#     for pt in clicked_points:
+#         cv.circle(display, pt, 5, (0, 0, 255), -1)
+#     cv.imshow("click points", display)
 
-    key = cv.waitKey(1) & 0xFF
-    if key == 27 or len(clicked_points) >= 4:  # ESC or 4 points
-        break
+#     key = cv.waitKey(1) & 0xFF
+#     if key == 27 or len(clicked_points) >= 4:  # ESC or 4 points
+#         break
 
-cv.destroyAllWindows()
-cap.release()
+# cv.destroyAllWindows()
+# cap.release()
 
 # mini-court size (HxW)
-court_height = 300
-court_width = 150
-padding = 40
+# court_height = 300
+# court_width = 150
+# padding = 40
 
-# create the mini-court canvas
-court_canvas = np.zeros((court_height, court_width, 3), dtype=np.uint8)
+# # create the mini-court canvas
+# court_canvas = np.zeros((court_height, court_width, 3), dtype=np.uint8)
 
-# draw court lines (green)
-cv.rectangle(
-    court_canvas,
-    (0, 0),
-    (court_width - 1, court_height - 1),
-    (0, 255, 0),
-    2
-)
+# # draw court lines (green)
+# cv.rectangle(
+#     court_canvas,
+#     (0, 0),
+#     (court_width - 1, court_height - 1),
+#     (0, 255, 0),
+#     2
+# )
 
-net_y = court_height // 2
-margin = court_width // 5
-service_box_length = int((21 / 39) * (court_height // 2))
+# net_y = court_height // 2
+# margin = court_width // 5
+# service_box_length = int((21 / 39) * (court_height // 2))
 
-# net
-cv.line(court_canvas, (0, net_y), (court_width, net_y), (0, 255, 0), 2)
+# # net
+# cv.line(court_canvas, (0, net_y), (court_width, net_y), (0, 255, 0), 2)
 
-# singles lines
-cv.line(court_canvas, (margin, 0), (margin, court_height), (0, 255, 0), 2)
-cv.line(court_canvas, (court_width - margin, 0),
-        (court_width - margin, court_height), (0, 255, 0), 2)
+# # singles lines
+# cv.line(court_canvas, (margin, 0), (margin, court_height), (0, 255, 0), 2)
+# cv.line(court_canvas, (court_width - margin, 0),
+#         (court_width - margin, court_height), (0, 255, 0), 2)
 
-# service box lines
-cv.line(
-    court_canvas,
-    (margin, net_y - service_box_length),
-    (court_width - margin, net_y - service_box_length),
-    (0, 255, 0),
-    2
-)
-cv.line(
-    court_canvas,
-    (margin, net_y + service_box_length),
-    (court_width - margin, net_y + service_box_length),
-    (0, 255, 0),
-    2
-)
+# # service box lines
+# cv.line(
+#     court_canvas,
+#     (margin, net_y - service_box_length),
+#     (court_width - margin, net_y - service_box_length),
+#     (0, 255, 0),
+#     2
+# )
+# cv.line(
+#     court_canvas,
+#     (margin, net_y + service_box_length),
+#     (court_width - margin, net_y + service_box_length),
+#     (0, 255, 0),
+#     2
+# )
 
-# center service line (TEE)
-cv.line(
-    court_canvas,
-    (court_width // 2, net_y - service_box_length),
-    (court_width // 2, net_y + service_box_length),
-    (0, 255, 0),
-    2
-)
+# # center service line (TEE)
+# cv.line(
+#     court_canvas,
+#     (court_width // 2, net_y - service_box_length),
+#     (court_width // 2, net_y + service_box_length),
+#     (0, 255, 0),
+#     2
+# )
 
-padded_court_height = court_height + 2 * padding
-padded_court_width = court_width + 2 * padding
+# padded_court_height = court_height + 2 * padding
+# padded_court_width = court_width + 2 * padding
 
-padded_court = np.zeros(
-    (padded_court_height, padded_court_width, 3),
-    dtype=np.uint8
-)
+# padded_court = np.zeros(
+#     (padded_court_height, padded_court_width, 3),
+#     dtype=np.uint8
+# )
 
-padded_court[
-    padding:padding + court_height,
-    padding:padding + court_width
-] = court_canvas
+# padded_court[
+#     padding:padding + court_height,
+#     padding:padding + court_width
+# ] = court_canvas
 
 # load video
 cap = cv.VideoCapture(video_path)
@@ -270,30 +270,59 @@ while True:
     #     for x1, y1, x2, y2 in lines[:,0]:
     #         cv.line(frame, (x1,y1), (x2,y2), (0,0,255), 2)
 
-    frame_h, frame_w = frame.shape[:2]
+    # frame_h, frame_w = frame.shape[:2]
 
-    court_offset_x = frame_w - padded_court_width
-    court_offset_y = 0
+    # court_offset_x = frame_w - padded_court_width
+    # court_offset_y = 0
 
-    frame[
-        court_offset_y:court_offset_y + padded_court_height,
-        court_offset_x:court_offset_x + padded_court_width
-    ] = padded_court
+    # frame[
+    #     court_offset_y:court_offset_y + padded_court_height,
+    #     court_offset_x:court_offset_x + padded_court_width
+    # ] = padded_court
 
 
     # only compute homography if user clicked all 4 points
-    if len(clicked_points) == 4:
+    # if len(clicked_points) == 4:
         # src/dst points for mapping court points into minimap points
-        src_pts = np.array(clicked_points, dtype=np.float32)
-        dst_pts = np.array([
-            [padding, padding],                               # top-left
-            [padding + court_width - 1, padding],            # top-right
-            [padding + court_width - 1, padding + court_height - 1], # bottom-right
-            [padding, padding + court_height - 1]            # bottom-left
-        ], dtype=np.float32)
+        # src_pts = np.array(clicked_points, dtype=np.float32)
+        # dst_pts = np.array([
+        #     [padding, padding],                               # top-left
+        #     [padding + court_width - 1, padding],            # top-right
+        #     [padding + court_width - 1, padding + court_height - 1], # bottom-right
+        #     [padding, padding + court_height - 1]            # bottom-left
+        # ], dtype=np.float32)
 
         # compute homography matrix between court and minimap
-        H, _ = cv.findHomography(src_pts, dst_pts)
+        # H, _ = cv.findHomography(src_pts, dst_pts)
+
+        # only update ball history if we have a detection
+        # if best_box is not None:
+        #     cx = (x1 + x2) // 2
+        #     cy = y2
+
+        #     # append only real detections
+        #     ball_history.append((cx, cy))
+        #     if len(ball_history) > 3:
+        #         ball_history.pop(0)
+
+        #     # bounce detection: local minimum in y
+        #     if len(ball_history) == 3 and bounce_cooldown == 0:
+        #         (_, y0), (_, y1), (_, y2) = ball_history
+
+        #         # bounce occurs when middle point is lowest
+        #         if y0 > y1 and y2 > y1:
+        #             bounce_x, bounce_y = ball_history[1]
+
+                    # project bounce point once
+                    # pt = np.array([[[bounce_x, bounce_y]]], dtype=np.float32)
+                    # projected = cv.perspectiveTransform(pt, H)
+
+                    # mini_x, mini_y = projected[0, 0]
+                    # bounce_points.append((int(mini_x), int(mini_y)))
+                    # bounce_points.append(bounce_x, bounce_y)
+
+                    # # short cooldown to avoid double-counting
+                    # bounce_cooldown = 8
 
         # only update ball history if we have a detection
         if best_box is not None:
@@ -304,7 +333,7 @@ while True:
             ball_history.append((cx, cy))
             if len(ball_history) > 3:
                 ball_history.pop(0)
-
+            print(ball_history)
             # bounce detection: local minimum in y
             if len(ball_history) == 3 and bounce_cooldown == 0:
                 (_, y0), (_, y1), (_, y2) = ball_history
@@ -313,12 +342,7 @@ while True:
                 if y0 > y1 and y2 > y1:
                     bounce_x, bounce_y = ball_history[1]
 
-                    # project bounce point once
-                    pt = np.array([[[bounce_x, bounce_y]]], dtype=np.float32)
-                    projected = cv.perspectiveTransform(pt, H)
-
-                    mini_x, mini_y = projected[0, 0]
-                    bounce_points.append((int(mini_x), int(mini_y)))
+                    bounce_points.append(bounce_x, bounce_y)
 
                     # short cooldown to avoid double-counting
                     bounce_cooldown = 8
@@ -329,8 +353,15 @@ while True:
 
         # draw all bounce points on minimap
         for x, y in bounce_points:
+            # cv.circle(
+            #     padded_court,
+            #     (x, y),
+            #     8,
+            #     (np.random.randint(50,230), np.random.randint(50,230), np.random.randint(50,230)),
+            #     -1
+            # )
             cv.circle(
-                padded_court,
+                frame,
                 (x, y),
                 8,
                 (np.random.randint(50,230), np.random.randint(50,230), np.random.randint(50,230)),
@@ -338,8 +369,8 @@ while True:
             )
 
         # overlay minimap on frame
-        frame[court_offset_y:court_offset_y + padded_court_height,
-            court_offset_x:court_offset_x + padded_court_width] = padded_court
+        # frame[court_offset_y:court_offset_y + padded_court_height,
+        #     court_offset_x:court_offset_x + padded_court_width] = padded_court
 
     cy_prev = cy
     vy_prev = vy

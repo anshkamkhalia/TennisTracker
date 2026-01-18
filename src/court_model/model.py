@@ -20,7 +20,7 @@ class CourtDetector(Model):
         # architecture
         self.conv1 = Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2)
         self.conv2 = Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2)
-        self.conv3 = Conv2D(1278, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
+        self.conv3 = Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
         
         self.bn1 = BatchNormalization()
         self.gap = GlobalAveragePooling2D()
