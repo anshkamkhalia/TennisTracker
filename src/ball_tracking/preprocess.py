@@ -15,33 +15,49 @@ max_jump = 80          # max pixels ball can move between frames
 conf_gap_thresh = 0.15 # confidence separation threshold
 
 # helper function
+# def select_valid_box(boxes, last_center):
+#     """returns the best box based on a list of candidates and the previous valid box"""
+
+#     if len(boxes) == 0:
+#         return None
+    
+#     # sort boxes by confidence
+#     boxes = sorted(boxes, key=lambda b: float(b.conf[0]), reverse=True)
+
+#     # if multiple detections
+#     if len(boxes) > 1:
+#         c0 = float(boxes[0].conf[0])
+#         c1 = float(boxes[1].conf[0])
+#         if c0-c1 < conf_gap_thresh:
+#             return None # ambiguous frame
+    
+#     best = boxes[0]
+#     x1, y1, x2, y2 = map(int, best.xyxy[0].numpy())
+#     cx = (x1+x2) // 2
+#     cy = y2
+
+#     if last_center is not None:
+#         px, py = last_center
+#         dist = np.hypot(cx-px, cy-py)
+#         if dist > max_jump:
+#             return None # motion too large
+        
+#     return (x1, y1, x2, y2, cx, cy)
+
+# helper function
 def select_valid_box(boxes, last_center):
-    """returns the best box based on a list of candidates and the previous valid box"""
+    """returns the best box based on confidence; very permissive for max frames"""
 
     if len(boxes) == 0:
         return None
-    
-    # sort boxes by confidence
-    boxes = sorted(boxes, key=lambda b: float(b.conf[0]), reverse=True)
 
-    # if multiple detections
-    if len(boxes) > 1:
-        c0 = float(boxes[0].conf[0])
-        c1 = float(boxes[1].conf[0])
-        if c0-c1 < conf_gap_thresh:
-            return None # ambiguous frame
+    # just take the box with highest confidence
+    best = max(boxes, key=lambda b: float(b.conf[0]))
     
-    best = boxes[0]
     x1, y1, x2, y2 = map(int, best.xyxy[0].numpy())
-    cx = (x1+x2) // 2
+    cx = (x1 + x2) // 2
     cy = y2
 
-    if last_center is not None:
-        px, py = last_center
-        dist = np.hypot(cx-px, cy-py)
-        if dist > max_jump:
-            return None # motion too large
-        
     return (x1, y1, x2, y2, cx, cy)
 
 # processing loop
