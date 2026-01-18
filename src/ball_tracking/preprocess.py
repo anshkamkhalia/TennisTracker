@@ -79,6 +79,7 @@ for filename in videos:
 
     frame_index = 0
     last_center = None
+    batch_idx = 0  # initialize before the while loop
 
     # video writer to save videos with discarded frames
     # out = cv.VideoWriter(
@@ -142,14 +143,26 @@ for filename in videos:
         del frame, results, boxes, selected
         gc.collect()
 
-    # save any remaining sequences at the end of the video
-    if len(X_train_local) > 0:
+    # save batch when reaching max size
+    if len(X_train_local) >= BATCH_SIZE:
         X_train_local_arr = np.array(X_train_local, dtype=np.uint8)
         y_train_local_arr = np.array(y_train_local, dtype=np.float32)
-        batch_idx = (frame_index // BATCH_SIZE) + 1
+        batch_idx += 1
+        print(f"saved batch {batch_idx}")
         np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_train_local_arr)
         np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_train_local_arr)
         X_train_local.clear()
         y_train_local.clear()
-        sequence.clear()
         gc.collect()
+
+# save remaining sequences
+if len(X_train_local) > 0:
+    X_train_local_arr = np.array(X_train_local, dtype=np.uint8)
+    y_train_local_arr = np.array(y_train_local, dtype=np.float32)
+    batch_idx += 1
+    print(f"saved batch {batch_idx}")
+    np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_train_local_arr)
+    np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_train_local_arr)
+    X_train_local.clear()
+    y_train_local.clear()
+    gc.collect()
