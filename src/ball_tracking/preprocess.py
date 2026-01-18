@@ -5,8 +5,8 @@ import numpy as np
 from ultralytics import YOLO
 import os
 
-source_video_path = "src/ball_tracking/data" # data path
-output_path = "src/ball_tracking/data/labels" # output path (.npy files will be stored here)
+source_video_path = "src/ball_tracking/videos" # data path
+output_path = "src/ball_tracking/videos/labels" # output path (.npy files will be stored here)
 videos = os.listdir(source_video_path) # list of all video names
 
 detector = YOLO("hugging_face_best.pt") # loads ball detector (teacher model)

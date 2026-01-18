@@ -8,7 +8,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 
-root = "src/ball_tracking/data/labels"
+root = "src/ball_tracking/videos/labels"
 
 # list of video indices to load
 video_ids = [2, 3, 4, 5, 6, 8]
