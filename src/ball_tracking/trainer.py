@@ -8,6 +8,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 
+tf.keras.mixed_precision.set_global_policy('mixed_float16')
 root = "src/ball_tracking/videos/labels"
 
 # list of video indices to load
@@ -21,8 +22,8 @@ for vid in video_ids:
     y_train_list.append(np.load(os.path.join(root, f"y_train_videoplayback{vid}.npy")))
 
 # concatenate all arrays into single X and y
-X_train = np.concatenate(X_train_list, axis=0)
-y_train = np.concatenate(y_train_list, axis=0)
+X_train = np.vstack(X_train_list)  # if each X_train_list[i] = (num_sequences, SEQUENCE_LEN, H, W, 3)
+y_train = np.vstack(y_train_list)
 
 # callbacks
 
@@ -115,7 +116,11 @@ for epoch in range(EPOCHS):
 
         train_loss.update_state(loss)
 
-        tqdm.write(f"step {step+1} - batch loss: {loss.numpy():.4f}")
+        if step % 10 == 0:
+            tqdm.write(f"step {step+1} - batch loss: {loss.numpy():.4f}")
+
+        for cb in callbacks:
+            cb.on_train_batch_end(step, logs={"loss": loss.numpy()})
 
     # validation
     val_loss = 0

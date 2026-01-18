@@ -61,7 +61,7 @@ class BallTracker(Model):
         self.dp2 = Dropout(0.3)
         self.dense4 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
     
-        self.out = Dense(6, activation="linear") # 6 values (x1, y1, x2, y2, cx, cy)
+        self.out = Dense(4, activation="linear") # 6 values (x1, y1, x2, y2)
     
     def call(self, x, training=False):
         # conv forward
@@ -78,10 +78,14 @@ class BallTracker(Model):
         x = self.dp1(x, training=training)
 
         # reshape for LSTM: (batch, timesteps=1, features)
-        x = tf.expand_dims(x, axis=1)
-        x = self.lstm1(x)
-        x = self.attention(x)
-        x = self.lstm2(x)
+        x = tf.expand_dims(x, axis=1)  
+        x = self.lstm1(x)              
+        x = self.attention(x)          
+        x = tf.expand_dims(x, axis=1)  
+        x = self.lstm2(x)              
+
+        # squeeze to remove timesteps for dense layers
+        x = tf.squeeze(x, axis=1)       # (batch, 128)
 
         # dense forward
         x = self.dense1(x)
