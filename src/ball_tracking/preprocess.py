@@ -4,6 +4,7 @@ import cv2 as cv
 import numpy as np
 from ultralytics import YOLO
 import os
+import gc
 
 source_video_path = "src/ball_tracking/videos" # data path
 output_path = "src/ball_tracking/videos/labels" # output path (.npy files will be stored here)
@@ -101,7 +102,7 @@ for filename in videos:
 
         results = detector.predict(
             source=frame,
-            conf=0.2,
+            conf=0.15,
             save=False,
             verbose=False
         )
@@ -135,7 +136,10 @@ for filename in videos:
         if len(sequence) >= SEQUENCE_LEN:
             X_train_local.append(np.stack(sequence, axis=0))
             y_train_local.append([x1, y1, x2, y2])
-            sequence.pop(0) # sliding window mechanism
+            sequence.clear()
+
+        del frame, results, boxes, selected
+        gc.collect()
 
     # save npy file
     X_train_local = np.array(X_train_local, dtype=np.uint8)
