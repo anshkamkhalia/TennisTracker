@@ -16,7 +16,7 @@ max_jump = 80          # max pixels ball can move between frames
 conf_gap_thresh = 0.15 # confidence separation threshold
 SEQUENCE_LEN = 10
 TARGET_FPS = 25
-BATCH_SIZE = 500 # chunking videos to avoid memory
+BATCH_SIZE = 50 # chunking videos to avoid memory
 
 # helper function
 # def select_valid_box(boxes, last_center):
@@ -144,15 +144,18 @@ for filename in videos:
         gc.collect()
 
     # save batch when reaching max size
-    if len(X_train_local) >= BATCH_SIZE:
-        X_train_local_arr = np.array(X_train_local, dtype=np.uint8)
-        y_train_local_arr = np.array(y_train_local, dtype=np.float32)
+    while len(X_train_local) >= BATCH_SIZE:
+        X_batch = np.array(X_train_local[:BATCH_SIZE], dtype=np.uint8)
+        y_batch = np.array(y_train_local[:BATCH_SIZE], dtype=np.float32)
+
         batch_idx += 1
         print(f"saved batch {batch_idx}")
-        np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_train_local_arr)
-        np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_train_local_arr)
-        X_train_local.clear()
-        y_train_local.clear()
+        np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_batch)
+        np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_batch)
+
+        # remove the saved sequences from memory
+        X_train_local = X_train_local[BATCH_SIZE:]
+        y_train_local = y_train_local[BATCH_SIZE:]
         gc.collect()
 
 # save remaining sequences
