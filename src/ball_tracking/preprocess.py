@@ -94,6 +94,9 @@ for filename in videos:
         if frame_index % stride != 0:
             continue
 
+        if frame_index % 100 == 0:
+            print(f"on frame {frame_index}")
+
         frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize frame to 1280x720 and apply interpolation
 
         results = detector.predict(
