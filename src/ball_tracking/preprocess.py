@@ -32,7 +32,7 @@ def select_valid_box(boxes, last_center):
             return None # ambiguous frame
     
     best = boxes[0]
-    x1, y1, x2, y2 = map(int(best.xyxy[0]))
+    x1, y1, x2, y2 = map(int, best.xyxy[0].numpy())
     cx = (x1+x2) // 2
     cy = y2
 
@@ -46,9 +46,12 @@ def select_valid_box(boxes, last_center):
 
 # processing loop
 for filename in videos:
-
+    print(filename)
+    if filename == "label":
+        continue
+    else: pass
     cap = cv.VideoCapture(os.path.join(source_video_path, filename)) # load new video
-    fps = cap.get(cv.CV_CAP_PROP_FPS) # get fps
+    fps = cap.get(cv.CAP_PROP_FPS) # get fps
     X_train_local, y_train_local = [], [] # initialize to be empty every time a new video is loaded
     video_name = filename.replace(".mp4", "") # for npy naming purposes
 
@@ -77,7 +80,7 @@ for filename in videos:
             source=frame,
             conf=0.2,
             save=False,
-            verbose=False
+            verbose=True
         )
 
         boxes = results[0].boxes
