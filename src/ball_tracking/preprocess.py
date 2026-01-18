@@ -5,6 +5,7 @@ import numpy as np
 from ultralytics import YOLO
 import os
 import gc
+import torch
 
 source_video_path = "src/ball_tracking/videos" # data path
 output_path = "src/ball_tracking/videos/labels" # output path (.npy files will be stored here)
@@ -64,6 +65,18 @@ def select_valid_box(boxes, last_center):
 
     return (x1, y1, x2, y2, cx, cy)
 
+def save_and_clear_batch(X_buf, y_buf, batch_idx, video_name):
+    """helper function for batch saving to save colabs puny 12gb of sys ram"""
+    X = np.asarray(X_buf, dtype=np.uint8)
+    y = np.asarray(y_buf, dtype=np.float32)
+
+    np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X)
+    np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y)
+
+    X_buf.clear()
+    y_buf.clear()
+    gc.collect()
+
 # processing loop
 for filename in videos:
     print(filename)
@@ -108,6 +121,7 @@ for filename in videos:
             save=False,
             verbose=False
         )
+        torch.cuda.empty_cache()
 
         boxes = results[0].boxes
 
@@ -140,32 +154,33 @@ for filename in videos:
             y_train_local.append([x1, y1, x2, y2])
             sequence.clear()
 
+        if len(X_train_local) == BATCH_SIZE:
+            batch_idx += 1
+            print(f"saved batch {batch_idx}")
+            save_and_clear_batch(X_train_local, y_train_local, batch_idx, video_name)
+
         del frame, results, boxes, selected
         gc.collect()
 
-    # save batch when reaching max size
-    while len(X_train_local) >= BATCH_SIZE:
-        X_batch = np.array(X_train_local[:BATCH_SIZE], dtype=np.uint8)
-        y_batch = np.array(y_train_local[:BATCH_SIZE], dtype=np.float32)
+    # save any remaining sequences for THIS video (final partial batch)
+    if len(X_train_local) > 0:
+        X_batch = np.asarray(X_train_local, dtype=np.uint8)
+        y_batch = np.asarray(y_train_local, dtype=np.float32)
 
         batch_idx += 1
-        print(f"saved batch {batch_idx}")
-        np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_batch)
-        np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_batch)
+        print(f"saved batch {batch_idx} (final)")
 
-        # remove the saved sequences from memory
-        X_train_local = X_train_local[BATCH_SIZE:]
-        y_train_local = y_train_local[BATCH_SIZE:]
+        np.save(
+            os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"),
+            X_batch
+        )
+        np.save(
+            os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"),
+            y_batch
+        )
+
+        # CRITICAL: clear in-place to free RAM
+        X_train_local.clear()
+        y_train_local.clear()
+        del X_batch, y_batch
         gc.collect()
-
-# save remaining sequences
-if len(X_train_local) > 0:
-    X_train_local_arr = np.array(X_train_local, dtype=np.uint8)
-    y_train_local_arr = np.array(y_train_local, dtype=np.float32)
-    batch_idx += 1
-    print(f"saved batch {batch_idx}")
-    np.save(os.path.join(output_path, f"X_train_batch{batch_idx}_{video_name}.npy"), X_train_local_arr)
-    np.save(os.path.join(output_path, f"y_train_batch{batch_idx}_{video_name}.npy"), y_train_local_arr)
-    X_train_local.clear()
-    y_train_local.clear()
-    gc.collect()
