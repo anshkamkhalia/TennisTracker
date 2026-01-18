@@ -7,23 +7,29 @@ from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, Early
 import numpy as np
 import os
 from tqdm import tqdm
+import glob
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 root = "src/ball_tracking/videos/labels"
 
-# list of video indices to load
+root = "src/ball_tracking/videos/labels"
 video_ids = [2, 3, 4, 5, 6, 8]
 
 X_train_list = []
 y_train_list = []
 
 for vid in video_ids:
-    X_train_list.append(np.load(os.path.join(root, f"X_train_videoplayback{vid}.npy")))
-    y_train_list.append(np.load(os.path.join(root, f"y_train_videoplayback{vid}.npy")))
+    # find all batch files for this video
+    X_files = sorted(glob.glob(os.path.join(root, f"X_train_batch*_{vid}.npy")))
+    y_files = sorted(glob.glob(os.path.join(root, f"y_train_batch*_{vid}.npy")))
+
+    for X_file, y_file in zip(X_files, y_files):
+        X_train_list.append(np.load(X_file))
+        y_train_list.append(np.load(y_file))
 
 # concatenate all arrays into single X and y
-X_train = np.vstack(X_train_list)  # if each X_train_list[i] = (num_sequences, SEQUENCE_LEN, H, W, 3)
-y_train = np.vstack(y_train_list)
+X_train = np.vstack(X_train_list)  # (num_sequences_total, SEQUENCE_LEN, H, W, 3)
+y_train = np.vstack(y_train_list)  # (num_sequences_total, 4)
 
 # callbacks
 
