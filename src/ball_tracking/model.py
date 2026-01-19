@@ -1,7 +1,7 @@
 # using a more powerful model (access to colab gpu) for ball detection
 
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, Conv2D, GlobalAveragePooling2D, BatchNormalization, Dropout, LSTM, Layer
+from tensorflow.keras.layers import Dense, Conv2D, GlobalAveragePooling2D, BatchNormalization, Dropout, LSTM, Layer, TimeDistributed
 from tensorflow.keras.models import Model
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.saving import register_keras_serializable
@@ -25,7 +25,7 @@ class Attention(Layer):
 class BallTracker(Model):
 
     """
-    a neural net to track 14 different keypoints on tennis courts
+    a spatiotemporal model to track tennis balls across frames
     """
 
     def __init__(self, *args, **kwargs):
@@ -34,25 +34,24 @@ class BallTracker(Model):
         # architecture
 
         # conv layers
-        self.conv1 = Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2)
-        self.bn1 = BatchNormalization()
+        self.conv1 = TimeDistributed(Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2))
+        self.bn1 = TimeDistributed(BatchNormalization())
 
-        self.conv2 = Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2)
-        self.bn2 = BatchNormalization()
+        self.conv2 = TimeDistributed(Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2))
+        self.bn2 = TimeDistributed(BatchNormalization())
 
-        self.conv3 = Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
-        self.bn3 = BatchNormalization()
+        self.conv3 = TimeDistributed(Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
+        self.bn3 = TimeDistributed(BatchNormalization())
 
-        self.conv4 = Conv2D(256, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4))
-        self.bn4 = BatchNormalization()
+        self.conv4 = TimeDistributed(Conv2D(256, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
+        self.bn4 = TimeDistributed(BatchNormalization())
 
-        self.gap = GlobalAveragePooling2D()
+        self.gap = TimeDistributed(GlobalAveragePooling2D())
         self.dp1 = Dropout(0.25)
 
         # lstm layers
-        self.lstm1 = LSTM(64, activation="tanh", return_sequences=True, kernel_regularizer=l2(1e-4))
+        self.lstm1 = LSTM(128, activation="tanh", return_sequences=True, kernel_regularizer=l2(1e-4))
         self.attention = Attention()
-        self.lstm2 = LSTM(128, activation="tanh", return_sequences=True, kernel_regularizer=l2(1e-4))
 
         self.dense1 = Dense(64, activation="relu", kernel_regularizer=l2(1e-3))
         self.dense2 = Dense(128, activation="relu", kernel_regularizer=l2(1e-4))
@@ -61,9 +60,10 @@ class BallTracker(Model):
         self.dp2 = Dropout(0.3)
         self.dense4 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
     
-        self.out = Dense(4, activation="linear") # 6 values (x1, y1, x2, y2)
+        self.out = Dense(4, activation="linear", dtype="float32")
     
     def call(self, x, training=False):
+        x = tf.cast(x, tf.float32) / 255.0 # normalize
         # conv forward
         x = self.conv1(x)
         x = self.bn1(x, training=training)
@@ -77,15 +77,8 @@ class BallTracker(Model):
         x = self.gap(x)
         x = self.dp1(x, training=training)
 
-        # reshape for LSTM: (batch, timesteps=1, features)
-        x = tf.expand_dims(x, axis=1)  
-        x = self.lstm1(x)              
-        x = self.attention(x)          
-        x = tf.expand_dims(x, axis=1)  
-        x = self.lstm2(x)              
-
-        # squeeze to remove timesteps for dense layers
-        x = tf.squeeze(x, axis=1)       # (batch, 128)
+        x = self.lstm1(x)        
+        x = self.attention(x)     
 
         # dense forward
         x = self.dense1(x)

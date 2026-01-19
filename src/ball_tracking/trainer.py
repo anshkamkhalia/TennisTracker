@@ -88,6 +88,9 @@ output_signature = (
     )
 )
 
+options = tf.data.Options()
+options.autotune.enabled = False
+
 # training dataset streams batches from disk
 train_dataset = tf.data.Dataset.from_generator(
     lambda: batch_file_generator(x_train_files, y_train_files, shuffle=True),
@@ -99,6 +102,9 @@ val_dataset = tf.data.Dataset.from_generator(
     lambda: batch_file_generator(x_val_files, y_val_files, shuffle=False),
     output_signature=output_signature
 ).prefetch(1)
+
+train_dataset = train_dataset.with_options(options)
+val_dataset = val_dataset.with_options(options)
 
 ball_tracker = BallTracker()
 
@@ -160,9 +166,6 @@ for epoch in range(epochs):
         for cb in callbacks:
             cb.on_train_batch_begin(step)
 
-        # cast to float16 for mixed precision
-        x_batch = tf.cast(x_batch, tf.float16)
-
         with tf.GradientTape() as tape:
             preds = ball_tracker(x_batch, training=True)
             loss = loss_fn(y_batch, preds)
@@ -170,7 +173,7 @@ for epoch in range(epochs):
         grads = tape.gradient(loss, ball_tracker.trainable_variables)
         optimizer.apply_gradients(zip(grads, ball_tracker.trainable_variables))
 
-        train_loss.update_state(loss)
+        train_loss.update_state(loss_fn(y_batch, preds))
 
         if step % 5 == 0:
             tqdm.write(f"step {step + 1} | loss: {loss.numpy():.4f}")
@@ -190,7 +193,6 @@ for epoch in range(epochs):
         desc="validation",
         ncols=100
     ):
-        x_batch = tf.cast(x_batch, tf.float16)
         preds = ball_tracker(x_batch, training=False)
         loss = loss_fn(y_batch, preds)
         val_losses.append(loss.numpy())
@@ -209,6 +211,9 @@ for epoch in range(epochs):
                 "val_loss": val_loss
             }
         )
+
+    if ball_tracker.stop_training:
+      break
 
 for cb in callbacks:
     cb.on_train_end()

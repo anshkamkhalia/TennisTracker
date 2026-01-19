@@ -15,9 +15,9 @@ detector = YOLO("hugging_face_best.pt") # loads ball detector (teacher model)
 
 max_jump = 80          # max pixels ball can move between frames
 conf_gap_thresh = 0.15 # confidence separation threshold
-SEQUENCE_LEN = 10
+SEQUENCE_LEN = 8
 TARGET_FPS = 25
-BATCH_SIZE = 50 # chunking videos to avoid memory
+BATCH_SIZE = 4 # chunking videos to avoid memory
 
 # helper function
 # def select_valid_box(boxes, last_center):
