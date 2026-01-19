@@ -34,31 +34,28 @@ class BallTracker(Model):
         # architecture
 
         # conv layers
-        self.conv1 = TimeDistributed(Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2))
+        self.conv1 = TimeDistributed(Conv2D(16, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-3), strides=2))
         self.bn1 = TimeDistributed(BatchNormalization())
 
-        self.conv2 = TimeDistributed(Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2))
+        self.conv2 = TimeDistributed(Conv2D(32, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4), strides=2))
         self.bn2 = TimeDistributed(BatchNormalization())
 
-        self.conv3 = TimeDistributed(Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
+        self.conv3 = TimeDistributed(Conv2D(64, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
         self.bn3 = TimeDistributed(BatchNormalization())
 
-        self.conv4 = TimeDistributed(Conv2D(256, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
+        self.conv4 = TimeDistributed(Conv2D(128, 3, padding='same', activation="relu", kernel_regularizer=l2(1e-4)))
         self.bn4 = TimeDistributed(BatchNormalization())
 
         self.gap = TimeDistributed(GlobalAveragePooling2D())
         self.dp1 = Dropout(0.25)
 
         # lstm layers
-        self.lstm1 = LSTM(128, activation="tanh", return_sequences=True, kernel_regularizer=l2(1e-4))
+        self.lstm1 = LSTM(64, activation="tanh", return_sequences=True, kernel_regularizer=l2(1e-4))
         self.attention = Attention()
 
-        self.dense1 = Dense(64, activation="relu", kernel_regularizer=l2(1e-3))
-        self.dense2 = Dense(128, activation="relu", kernel_regularizer=l2(1e-4))
-        self.dense3 = Dense(256, activation="relu", kernel_regularizer=l2(1e-4))
-
-        self.dp2 = Dropout(0.3)
-        self.dense4 = Dense(512, activation="relu", kernel_regularizer=l2(1e-4))
+        self.dense1 = Dense(32, activation="relu", kernel_regularizer=l2(1e-3))
+        self.dense2 = Dense(64, activation="relu", kernel_regularizer=l2(1e-4))
+        self.dense3 = Dense(128, activation="relu", kernel_regularizer=l2(1e-4))
     
         self.out = Dense(4, activation="linear", dtype="float32")
     
@@ -84,8 +81,6 @@ class BallTracker(Model):
         x = self.dense1(x)
         x = self.dense2(x)
         x = self.dense3(x)
-        x = self.dp2(x, training=training)
-        x = self.dense4(x)
 
         # output
         return self.out(x)

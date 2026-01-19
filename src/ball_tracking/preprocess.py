@@ -17,7 +17,7 @@ max_jump = 80          # max pixels ball can move between frames
 conf_gap_thresh = 0.15 # confidence separation threshold
 SEQUENCE_LEN = 8
 TARGET_FPS = 25
-BATCH_SIZE = 4 # chunking videos to avoid memory
+BATCH_SIZE = 2 # chunking videos to avoid memory failure
 
 # helper function
 # def select_valid_box(boxes, last_center):

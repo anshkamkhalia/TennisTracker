@@ -19,7 +19,7 @@ tf.keras.mixed_precision.set_global_policy("mixed_float16")
 
 root = "src/ball_tracking/videos/labels"
 
-sequence_len = 10
+sequence_len = 8
 img_h, img_w = 720, 1280
 epochs = 100
 
