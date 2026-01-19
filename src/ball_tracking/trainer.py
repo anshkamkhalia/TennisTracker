@@ -13,7 +13,7 @@ tf.keras.mixed_precision.set_global_policy('mixed_float16')
 root = "src/ball_tracking/videos/labels"
 
 root = "src/ball_tracking/videos/labels"
-video_ids = [2, 3, 4, 5, 6, 8]
+video_ids = [2, 3, 5, 6, 8]
 
 X_train_list = []
 y_train_list = []
