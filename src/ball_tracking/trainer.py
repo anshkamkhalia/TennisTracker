@@ -1,144 +1,214 @@
-# trains and exports the final tracker
+# trains and exports the final tracker using disk-backed generators
+# this version avoids loading the full dataset into ram
 
 from model import BallTracker, Attention
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
+from tensorflow.keras.callbacks import (
+    ModelCheckpoint,
+    ReduceLROnPlateau,
+    EarlyStopping
+)
 import numpy as np
 import os
+import gc
 from tqdm import tqdm
-import glob
 
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
+# enable mixed precision to reduce vram usage
+tf.keras.mixed_precision.set_global_policy("mixed_float16")
 
 root = "src/ball_tracking/videos/labels"
-video_ids = [2, 3, 5, 6, 8]
-videos = os.listdir(root)
 
-X_train_list = []
-y_train_list = []
+sequence_len = 10
+img_h, img_w = 720, 1280
+epochs = 100
 
-for video in videos:
-    X_train_list.append(np.load(os.path.join(root, video)))
-    y_train_list.append(np.load(os.path.join(root, video)))
+# list all files in the labels directory
+all_files = os.listdir(root)
 
-# concatenate all arrays into single X and y
-X_train = np.vstack(X_train_list)  # (num_sequences_total, SEQUENCE_LEN, H, W, 3)
-y_train = np.vstack(y_train_list)  # (num_sequences_total, 4)
+# separate x and y batch files
+x_files = sorted([
+    os.path.join(root, f)
+    for f in all_files
+    if f.startswith("X_train_batch") and f.endswith(".npy")
+])
 
-# callbacks
+y_files = sorted([
+    os.path.join(root, f)
+    for f in all_files
+    if f.startswith("y_train_batch") and f.endswith(".npy")
+])
 
-# model checkpoint - saves best model during training
-model_checkpoint = ModelCheckpoint(
-    'serialized_models/ball_tracker.keras',         # file to save
-    monitor='val_loss',      # what to monitor
-    save_best_only=True,     # only save when its the best
-    verbose=1
+# sanity check to ensure alignment
+assert len(x_files) == len(y_files), "x/y batch count mismatch"
+
+num_batches = len(x_files)
+
+# split by batch count instead of sample count
+val_split = 0.1
+val_batches = int(num_batches * val_split)
+
+x_val_files = x_files[:val_batches]
+y_val_files = y_files[:val_batches]
+
+x_train_files = x_files[val_batches:]
+y_train_files = y_files[val_batches:]
+
+print(f"train batches: {len(x_train_files)}")
+print(f"val batches: {len(x_val_files)}")
+
+def batch_file_generator(x_paths, y_paths, shuffle=True):
+    # create indices so we can shuffle without touching disk order
+    indices = np.arange(len(x_paths))
+
+    while True:
+        if shuffle:
+            np.random.shuffle(indices)
+
+        for i in indices:
+            # load a single batch pair into memory
+            x = np.load(x_paths[i])
+            y = np.load(y_paths[i])
+
+            yield x, y
+
+            # aggressively free ram after yielding
+            del x, y
+            gc.collect()
+
+# explicitly define shapes so tensorflow does not guess wrong
+output_signature = (
+    tf.TensorSpec(
+        shape=(None, sequence_len, img_h, img_w, 3),
+        dtype=tf.uint8
+    ),
+    tf.TensorSpec(
+        shape=(None, 4),
+        dtype=tf.float32
+    )
 )
 
-# reduce lr - reduces lr by a dampening factor if loss plateaus
-reduce_lr = ReduceLROnPlateau(
-    monitor='val_loss',
-    factor=0.75,              
-    patience=10,              # wait this many epochs before reducing
-    min_lr=1e-6,             # dont go below this LR
-    verbose=1 
-)
+# training dataset streams batches from disk
+train_dataset = tf.data.Dataset.from_generator(
+    lambda: batch_file_generator(x_train_files, y_train_files, shuffle=True),
+    output_signature=output_signature
+).prefetch(1)
 
-# early stopping - stops if model has not been improving
-early_stopping = EarlyStopping(
-    monitor='val_loss',      # what to monitor
-    patience=15,             # how many epochs to wait before stopping
-    restore_best_weights=True
-)
-
-BATCH_SIZE = 16
-EPOCHS = 100
-
-# optimizer and loss
-optimizer = Adam(1e-3)
-loss_fn = tf.keras.losses.MeanSquaredError()
-
-# metrics
-train_loss = tf.keras.metrics.Mean(name="train_loss")
+# validation dataset does not shuffle
+val_dataset = tf.data.Dataset.from_generator(
+    lambda: batch_file_generator(x_val_files, y_val_files, shuffle=False),
+    output_signature=output_signature
+).prefetch(1)
 
 ball_tracker = BallTracker()
 
-# compile model
+optimizer = Adam(1e-3)
+loss_fn = tf.keras.losses.MeanSquaredError()
+
 ball_tracker.compile(
     optimizer=optimizer,
-    loss=loss_fn, # multiple labels
-    metrics=['mae']
+    loss=loss_fn,
+    metrics=["mae"]
 )
 
-val_split = 0.1
-val_size = int(len(X_train) * val_split)
+model_checkpoint = ModelCheckpoint(
+    "serialized_models/ball_tracker.keras",
+    monitor="val_loss",
+    save_best_only=True,
+    verbose=1
+)
 
-X_test = X_train[:val_size]
-y_test = y_train[:val_size]
+reduce_lr = ReduceLROnPlateau(
+    monitor="val_loss",
+    factor=0.75,
+    patience=10,
+    min_lr=1e-6,
+    verbose=1
+)
 
-X_train = X_train[val_size:]
-y_train = y_train[val_size:]
+early_stopping = EarlyStopping(
+    monitor="val_loss",
+    patience=15,
+    restore_best_weights=True
+)
 
-# custom training loop
-dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-dataset = dataset.shuffle(buffer_size=500).batch(batch_size=BATCH_SIZE)
+callbacks = [early_stopping, reduce_lr, model_checkpoint]
 
-val_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-val_dataset = val_dataset.batch(batch_size=BATCH_SIZE)
-
-callbacks = early_stopping, reduce_lr, model_checkpoint
-
-# tell each callback the model
+# manually attach callbacks for custom loop
 for cb in callbacks:
     cb.set_model(ball_tracker)
     cb.on_train_begin()
 
-for epoch in range(EPOCHS):
-    
+train_loss = tf.keras.metrics.Mean(name="train_loss")
+
+for epoch in range(epochs):
+
+    print(f"\nepoch {epoch + 1}/{epochs}")
+    train_loss.reset_state()
+
     for cb in callbacks:
         cb.on_epoch_begin(epoch)
 
-    print(f"epoch: {epoch+1}/{EPOCHS}")
-
-    train_loss.reset_states() # reset metric
-    val_losses = []            # reset val losses
-
-    for step, (X_batch, y_batch) in enumerate(tqdm(dataset, desc="training", ncols=100)):
+    # training pass (one disk batch per step)
+    for step, (x_batch, y_batch) in enumerate(
+        tqdm(
+            train_dataset.take(len(x_train_files)),
+            desc="training",
+            ncols=100
+        )
+    ):
         for cb in callbacks:
             cb.on_train_batch_begin(step)
 
-        with tf.GradientTape() as tape:
-            y_pred = ball_tracker(X_batch, training=True)
-            loss = loss_fn(y_batch, y_pred)
+        # cast to float16 for mixed precision
+        x_batch = tf.cast(x_batch, tf.float16)
 
-        gradients = tape.gradient(loss, ball_tracker.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, ball_tracker.trainable_variables))
+        with tf.GradientTape() as tape:
+            preds = ball_tracker(x_batch, training=True)
+            loss = loss_fn(y_batch, preds)
+
+        grads = tape.gradient(loss, ball_tracker.trainable_variables)
+        optimizer.apply_gradients(zip(grads, ball_tracker.trainable_variables))
 
         train_loss.update_state(loss)
 
-        if step % 10 == 0:
-            tqdm.write(f"step {step+1} - batch loss: {loss.numpy():.4f}")
+        if step % 5 == 0:
+            tqdm.write(f"step {step + 1} | loss: {loss.numpy():.4f}")
 
         for cb in callbacks:
             cb.on_train_batch_end(step, logs={"loss": loss.numpy()})
 
-    # validation
-    val_loss = 0
-    val_steps = 0
-    for X_batch, y_batch in tqdm(val_dataset, desc="validation", ncols=100):
-        preds = ball_tracker(X_batch, training=False)
+        # free memory aggressively
+        del x_batch, y_batch, preds, grads
+        gc.collect()
+
+    # validation pass
+    val_losses = []
+
+    for x_batch, y_batch in tqdm(
+        val_dataset.take(len(x_val_files)),
+        desc="validation",
+        ncols=100
+    ):
+        x_batch = tf.cast(x_batch, tf.float16)
+        preds = ball_tracker(x_batch, training=False)
         loss = loss_fn(y_batch, preds)
         val_losses.append(loss.numpy())
-        val_loss += loss.numpy()
-        val_steps += 1
-    val_loss /= val_steps
 
-    print(f"val loss for epoch {epoch+1}: {np.mean(val_losses)}")
+        del x_batch, y_batch, preds
+        gc.collect()
+
+    val_loss = float(np.mean(val_losses))
+    print(f"val loss: {val_loss:.4f}")
+
     for cb in callbacks:
-        cb.on_epoch_end(epoch, logs={"loss": train_loss.result().numpy(), "val_loss": val_loss})
-
-    # print(f"\n\nepoch {epoch+1}\nloss: {train_loss.result().numpy():.4f}\nval_loss: {np.mean(val_losses)}\n\n")
+        cb.on_epoch_end(
+            epoch,
+            logs={
+                "loss": train_loss.result().numpy(),
+                "val_loss": val_loss
+            }
+        )
 
 for cb in callbacks:
     cb.on_train_end()
