@@ -1,4 +1,5 @@
 # using a more powerful model (access to colab gpu) for ball detection
+# DEPRECATED - not powerful enough hardware, yolo is a better option
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Conv2D, GlobalAveragePooling2D, BatchNormalization, Dropout, LSTM, Layer, TimeDistributed

@@ -1,4 +1,5 @@
 # uses a pretrained yolo model to create labels for a custom spatiotemporal model
+# DEPRECATED - not powerful enough hardware, yolo is a better option
 
 import cv2 as cv
 import numpy as np

@@ -1,5 +1,6 @@
 # trains and exports the final tracker using disk-backed generators
 # this version avoids loading the full dataset into ram
+# DEPRECATED - not powerful enough hardware, yolo is a better option
 
 from model import BallTracker, Attention
 import tensorflow as tf
