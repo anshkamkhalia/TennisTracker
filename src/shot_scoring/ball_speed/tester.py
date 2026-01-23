@@ -46,7 +46,8 @@ display_mph = None
 display_timer = 0 
 DISPLAY_DURATION = int(video_fps * 1.2)  # ~1.2 seconds
 prev_speed_mps = 0
-current_cooldown = 10 # 10 frames
+sliding_window_size = 10
+max_px_jump = 100
 
 frame_index = 0
 
@@ -91,7 +92,7 @@ while True:
     # calculate meters per pixel    
     if len(heights) >= n_frames and not meters_per_pixel_calculated:
         meters_per_pixel = player_height / np.mean(heights) # uses mean for smoothing
-        meters_per_pixel = meters_per_pixel * 3 # 2d monocular tracking -> 3d movement, extremely low values, bias factor
+        meters_per_pixel = meters_per_pixel * 2.1 # k factor for horizontal scaling
         meters_per_pixel_calculated = True
 
     # predict on frame
@@ -125,12 +126,6 @@ while True:
                 max_distance = distance
                 moving_ball = (cx, cy)
 
-    if moving_ball:
-        coordinates.append((frame_index, moving_ball[0], moving_ball[1]))
-        trail.append(moving_ball)
-        if len(trail) > MAX_TRAIL_LENGTH:
-            trail.pop(0)
-
     prev_ball_centers = detected_centers.copy()
 
     if moving_ball:
@@ -143,7 +138,6 @@ while True:
         # draw box around moving ball
         cv.rectangle(frame, (cx-5, cy-5), (cx+5, cy+5), (0,255,0), 3)
 
-
     # draw trail (old → red, new → green)
     for idx, (tx, ty) in enumerate(trail):
         alpha = idx / len(trail)
@@ -155,17 +149,26 @@ while True:
         cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1)
 
     # speed estimation
-    if len(coordinates) >= speed_buffer and meters_per_pixel_calculated and current_cooldown == 0:
+    if len(coordinates) >= speed_buffer and meters_per_pixel_calculated:
 
-        # get delta
-        dx = coordinates[-1][1] - coordinates[0][1]
-        dy = coordinates[-1][2] - coordinates[0][2]
+        speeds = []
+        for i in range(len(coordinates) - 1):
+            dt = (coordinates[i+1][0] - coordinates[i][0]) / video_fps
+            if dt <= 0 or dt > 2.0:  # skip impossible jumps
+                print("skipped")
+                continue
+            dx = coordinates[i+1][1] - coordinates[i][1]
+            dy = coordinates[i+1][2] - coordinates[i][2]
+            dx = np.clip(dx, -max_px_jump, max_px_jump)
+            dy = np.clip(dy, -max_px_jump, max_px_jump)
+            speeds.append(np.sqrt(dx**2 + dy**2) * meters_per_pixel / dt)
 
-        pixel_distance = np.sqrt(dx**2 + dy**2) # calculate distance in pixels
-        distance_meters = meters_per_pixel * pixel_distance # convert into meters
-        dt = (coordinates[-1][0] - coordinates[0][0]) / video_fps
+        speed_mps = np.median(speeds)  # smooth over sliding window
 
-        speed_mps = distance_meters / dt # calculate speed in meters per second
+        if len(speeds) == 0:
+            speed_mps = prev_speed_mps
+        else:
+            speed_mps = np.median(speeds)
 
         # save as previous
         prev_speed_mps = speed_mps
@@ -183,13 +186,10 @@ while True:
         smooth_speed = np.median(speed_history)
         display_mph = min(smooth_speed * 2.23694, 145)
         display_timer = DISPLAY_DURATION
-        coordinates = []
-        current_cooldown = 10 # reset cooldown
 
-    elif current_cooldown != 0:
-        current_cooldown -= 1
-
-    else: pass
+        # slide window
+        if len(coordinates) >= sliding_window_size:
+            coordinates = coordinates[sliding_window_size:]
         
     if display_timer > 0 and display_mph is not None:
         text = f"estimated ball speed: {int(display_mph)} mph"
@@ -225,7 +225,7 @@ while True:
         )
 
         display_timer -= 1
-
+    print("\n\n")
     # write frame
     out.write(cv.resize(frame, (1280, 720)))
 
