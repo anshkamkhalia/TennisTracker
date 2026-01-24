@@ -18,3 +18,5 @@ get these metrics for shot score:
 - net clearance
 - depth
 - outcome
+
+build neural net to classify frames as contact or not

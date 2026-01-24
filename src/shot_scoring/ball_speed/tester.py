@@ -49,6 +49,8 @@ prev_speed_mps = 0
 sliding_window_size = 10
 max_px_jump = 100
 
+crossed_boundary = False
+
 frame_index = 0
 
 prev_ball_centers = []
@@ -160,7 +162,7 @@ while True:
             dx = coordinates[i+1][1] - coordinates[i][1]
             dy = coordinates[i+1][2] - coordinates[i][2]
             dx = np.clip(dx, -max_px_jump, max_px_jump)
-            dy = np.clip(dy, -max_px_jump, max_px_jump)
+            dy = np.clip(dy, -max_px_jump, max_px_jump) 
             speeds.append(np.sqrt(dx**2 + dy**2) * meters_per_pixel / dt)
 
         speed_mps = np.median(speeds)  # smooth over sliding window
