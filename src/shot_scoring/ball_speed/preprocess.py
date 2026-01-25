@@ -1,5 +1,5 @@
 # uses yolo to automatically label sequences based on rapid ball direction changes
-# stores only coordinates and labels, no raw frames to save memory
+# stores only coordinates + velocity + window-level labels
 
 import os
 import cv2
@@ -9,52 +9,43 @@ from ultralytics import YOLO
 VIDEO_DIR = "src/shot_scoring/ball_speed/videos"
 OUTPUT_DIR = "src/shot_scoring/ball_speed/labels"
 
-SEQ_LEN = 21              # must be odd (10 back, center, 10 forward)
-MIN_START_FRAME = 20      # skip first frames
+SEQ_LEN = 21                  # must be odd
+MIN_START_FRAME = 20
 BALL_CONF = 0.25
 MODEL_PATH = "hugging_face_best.pt"
-DIRECTION_THRESHOLD = 15   # pixels/frame change to count as "contact"
+DIRECTION_THRESHOLD = 15      # pixels/frame
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def load_videos(video_dir):
-    return [
-        os.path.join(video_dir, f)
-        for f in sorted(os.listdir(video_dir))
-        if f.endswith((".mp4", ".mov", ".avi"))
-    ]
-
 def detect_ball(model, frame):
-    """return first ball center detected or None"""
-    results = model.predict(source=frame, conf=BALL_CONF, save=False, verbose=True)
+    results = model.predict(frame, conf=BALL_CONF, verbose=False)
     boxes = results[0].boxes
-    if boxes:
-        x1, y1, x2, y2 = map(int, boxes[0].xyxy[0])
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-        return (cx, cy)
-    return None
+    if len(boxes) == 0:
+        return None
+    x1, y1, x2, y2 = map(int, boxes[0].xyxy[0])
+    return ((x1 + x2) // 2, (y1 + y2) // 2)
 
 def main():
     model = YOLO(MODEL_PATH)
-    videos = load_videos(VIDEO_DIR)
 
-    for video_path in videos:
-        print(f"\nprocessing: {video_path}")
-        cap = cv2.VideoCapture(video_path)
+    for video_name in sorted(os.listdir(VIDEO_DIR)):
+        if not video_name.endswith(".mp4"):
+            continue
 
-        coords_buffer = []       # sliding window of coordinates
-        velocities_buffer = []   # sliding window of velocities
-        labels_buffer = []       # center-frame contact labels
+        path = os.path.join(VIDEO_DIR, video_name)
+        print(f"\nprocessing: {path}")
 
-        frame_idx = 0
-        skipped_no_ball = 0
+        cap = cv2.VideoCapture(path)
 
-        X_train = []
-        y_train = []
+        coords = []
+        velocities = []
+        contact_flags = []
+
+        X, y = [], []
 
         prev_coord = None
         prev_velocity = (0, 0)
+        frame_idx = 0
 
         while True:
             ret, frame = cap.read()
@@ -66,50 +57,62 @@ def main():
                 continue
 
             coord = detect_ball(model, frame)
-            if coord is None:
-                skipped_no_ball += 1
-                coord = None
-            # calculate velocity
-            if prev_coord is not None and coord is not None:
+
+            if coord is not None and prev_coord is not None:
                 dx = coord[0] - prev_coord[0]
                 dy = coord[1] - prev_coord[1]
                 velocity = (dx, dy)
             else:
                 velocity = (0, 0)
 
-            # detect rapid direction change
+            # detect sharp direction change
             delta_dx = abs(velocity[0] - prev_velocity[0])
             delta_dy = abs(velocity[1] - prev_velocity[1])
-            contact_label = int(delta_dx > DIRECTION_THRESHOLD or delta_dy > DIRECTION_THRESHOLD)
 
-            coords_buffer.append(coord if coord is not None else (-1, -1))
-            velocities_buffer.append(velocity)
-            labels_buffer.append(contact_label)
+            contact = int(
+                delta_dx > DIRECTION_THRESHOLD or
+                delta_dy > DIRECTION_THRESHOLD
+            )
+
+            if coord is None:
+                coords.append((-1, -1))
+                velocities.append((0, 0))
+            else:
+                coords.append(coord)
+                velocities.append(velocity)
+
+            contact_flags.append(contact)
 
             prev_coord = coord
             prev_velocity = velocity
 
-            # slide window when buffer is full
-            if len(coords_buffer) >= SEQ_LEN:
-                # save sequence
-                X_train.append(np.array(coords_buffer[-SEQ_LEN:], dtype=np.int16))
-                y_train.append(np.array(labels_buffer[-SEQ_LEN:], dtype=np.int8))
+            if len(coords) >= SEQ_LEN:
+                window_coords = coords[-SEQ_LEN:]
+                window_vels = velocities[-SEQ_LEN:]
+                window_labels = contact_flags[-SEQ_LEN:]
 
-                # pop oldest to slide window
-                coords_buffer.pop(0)
-                velocities_buffer.pop(0)
-                labels_buffer.pop(0)
+                # combine (x, y, dx, dy)
+                seq = np.hstack([
+                    np.array(window_coords, dtype=np.float32),
+                    np.array(window_vels, dtype=np.float32),
+                ])
+
+                X.append(seq)
+
+                # window-level label
+                y.append(int(any(window_labels)))
+
+                coords.pop(0)
+                velocities.pop(0)
+                contact_flags.pop(0)
 
         cap.release()
-        base = os.path.splitext(os.path.basename(video_path))[0]
 
-        np.save(os.path.join(OUTPUT_DIR, f"{base}_X.npy"), np.array(X_train, dtype=np.int16))
-        np.save(os.path.join(OUTPUT_DIR, f"{base}_y.npy"), np.array(y_train, dtype=np.int8))
+        base = os.path.splitext(video_name)[0]
+        np.save(os.path.join(OUTPUT_DIR, f"{base}_X.npy"), np.array(X))
+        np.save(os.path.join(OUTPUT_DIR, f"{base}_y.npy"), np.array(y))
 
-        print(f"saved {len(X_train)} sequences")
-        print(f"skipped frames (no ball): {skipped_no_ball}")
-
-        del X_train, y_train, coords_buffer, velocities_buffer, labels_buffer
+        print(f"saved {len(X)} sequences")
 
 if __name__ == "__main__":
     main()
