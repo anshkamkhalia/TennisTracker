@@ -118,7 +118,7 @@ shot_classifier = ShotClassifier()
 
 # model checkpoint - saves best model during training
 model_checkpoint = ModelCheckpoint(
-    'serialized_models/shot_classifier.keras',         # file to save
+    'serialized_models/shot_classifierh5.h5',         # file to save
     monitor='val_loss',      # what to monitor
     save_best_only=True,     # only save when its the best
     verbose=1

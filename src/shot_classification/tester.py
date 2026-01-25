@@ -63,7 +63,7 @@ cap = cv.VideoCapture(video_path)
 out = cv.VideoWriter(
     f"outputs/run{i}.mp4",
     cv.VideoWriter_fourcc(*"mp4v"),
-    30,
+    60,
     (1280, 720)
 )
 
@@ -81,9 +81,6 @@ while True:
     frame_index += 1
     ret, frame = cap.read()
     if not ret: break # breaks if last frame
-
-    if frame_index % 2 == 0 and i == 5:
-        continue
 
     if i != 5:
         frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize frame to 720p
