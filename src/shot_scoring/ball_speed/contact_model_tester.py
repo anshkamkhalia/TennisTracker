@@ -36,15 +36,25 @@ cap = cv.VideoCapture(VIDEO_PATH)
 coords = []
 vels = []
 prev = None
-contact_frames = []
 frame_idx = 0
+
+# output video
+out = cv.VideoWriter(
+    f"outputs/run_contact_tester5.mp4",
+    cv.VideoWriter_fourcc(*"mp4v"),
+    60,
+    (1280, 720)
+)
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
+    frame = cv.resize(frame, (1280, 720))
     frame_idx += 1
+
+    # detect ball
     c = detect_ball_center(frame)
 
     if c is not None and prev is not None:
@@ -66,20 +76,39 @@ while True:
         vels.pop(0)
 
     if len(coords) < SEQ_LEN:
+        out.write(frame)
         continue
 
+    # prepare input for model
     seq = np.hstack([
         np.array(coords, dtype=np.float32),
         np.array(vels, dtype=np.float32),
     ])
-
     seq[:, :2] /= np.array([frame.shape[1], frame.shape[0]])
-    p = model.predict(seq[None], verbose=1)[0][0]
 
+    # predict contact
+    p = model.predict(seq[None], verbose=0)[0][0]
+
+    # overlay CONTACT if above threshold
     if p > threshold:
-        contact_frames.append(frame_idx - CENTER_IDX)
+        cv.putText(
+            frame,
+            "CONTACT",
+            (50, 100),
+            cv.FONT_HERSHEY_SIMPLEX,
+            2.0,
+            (0, 0, 255),
+            4,
+            cv.LINE_AA
+        )
+
+    # draw detected ball for visualization
+    if c is not None:
+        cv.circle(frame, c, 7, (0, 255, 0), -1)
+
+    out.write(frame)
+    print(frame_idx, "CONTACT" if p > threshold else "")
 
 cap.release()
-
-contact_frames = sorted(set(contact_frames))
-print("detected contacts:", contact_frames)
+out.release()
+print("Processing complete.")

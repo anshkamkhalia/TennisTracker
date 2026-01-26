@@ -25,6 +25,9 @@ from flask_cors import CORS
 limiter = Limiter(
     key_func=get_remote_address, 
 )
+@limiter.request_filter
+def ignore_options():
+    return request.method == "OPTIONS"
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -88,7 +91,11 @@ pose = mp_pose.Pose(
 )
 
 app = Flask(__name__)
-CORS(app)
+CORS(
+    app,
+    resources={r"/*": {"origins": "http://localhost:8081"}},
+    supports_credentials=True,
+)
 
 limiter.init_app(app)
 
@@ -147,7 +154,16 @@ def payload_too_large(e):
 
     return jsonify({"error": "File too large. Max size is 150 MB."}), 413
 
-@app.route("/process-video", methods=["POST"])
+# @app.before_request
+# def handle_preflight():
+#     if request.method == "OPTIONS":
+#         response = app.make_response("")
+#         response.headers["Access-Control-Allow-Origin"] = "http://localhost:8081"
+#         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+#         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+#         return response
+
+@app.route("/process-video", methods=["POST", "OPTIONS"])
 @limiter.limit("1 per minute")
 def main():
 

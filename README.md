@@ -19,4 +19,4 @@ get these metrics for shot score:
 - depth
 - outcome
 
-build neural net to classify frames as contact or not
+fix contact detector, make it find individual frames instead of windows

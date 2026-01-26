@@ -1,6 +1,8 @@
 import "./global.css";
-import { Stack } from "expo-router";
+
+import { Stack, Redirect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+
 import { useFonts } from "expo-font";
 import {
   Outfit_400Regular,
@@ -8,20 +10,21 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from "@expo-google-fonts/outfit";
+
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { Text } from "react-native";
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from "react";
+
+import { supabase } from "@/lib/supabase";
+
+import {
+  MaterialCommunityIcons,
+  Ionicons,
+} from "@expo/vector-icons";
 
 SplashScreen.preventAutoHideAsync();
 
-export const unstable_settings = {
-  anchor: "(tabs)",
-};
-
 export default function RootLayout() {
-
-  // Loads in fonts and icons
+  /* Fonts */
   const [fontsLoaded] = useFonts({
     Outfit_400Regular,
     Outfit_500Medium,
@@ -32,28 +35,52 @@ export default function RootLayout() {
     ...MaterialCommunityIcons.font,
   });
 
-  // useEffect(() => {
-  //   if (fontsLoaded) {
-  //     (Text as any).defaultProps = (Text as any).defaultProps || {};
-  //     (Text as any).defaultProps.style = {
-  //       fontFamily: "Outfit_400Regular",
-  //     };
+  /* Auth */
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  //     SplashScreen.hideAsync();
-  //   }
-  // }, [fontsLoaded]);
+  useEffect(() => {
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      setSession(data.session);
+      setLoading(false);
+    };
 
-  // if (!fontsLoaded) return null;
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  /* Splash */
+  useEffect(() => {
+    if (fontsLoaded && !loading) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, loading]);
+
+  if (!fontsLoaded || loading) return null;
 
   return (
     <>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      {/* 🔐 Auth Guard */}
+      {!session && <Redirect href="/(auth)/welcome" />}
+      {session && <Redirect href="/(tabs)" />}
+
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="modal"
-          options={{ presentation: "modal", title: "Modal" }}
+          options={{ presentation: "modal" }}
         />
       </Stack>
+
       <StatusBar style="light" />
     </>
   );

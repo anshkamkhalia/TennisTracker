@@ -1,3 +1,5 @@
+# lightweight lstm to classify contact windows
+
 from tensorflow.keras.layers import LSTM, Dense, Bidirectional, BatchNormalization, Layer
 from tensorflow.keras.models import Model
 import tensorflow as tf

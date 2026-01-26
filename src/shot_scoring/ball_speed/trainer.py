@@ -56,15 +56,15 @@ model.compile(
     ],
 )
 
-model.fit(
-    X,
-    y,
-    epochs=100,
-    batch_size=16,
-    validation_split=0.15,
-    callbacks=[
-        ModelCheckpoint("serialized_models/contact_detector.keras", save_best_only=True),
-        ReduceLROnPlateau(patience=10),
-        EarlyStopping(patience=20, restore_best_weights=True),
-    ],
-)
+# model.fit(
+#     X,
+#     y,
+#     epochs=100,
+#     batch_size=16,
+#     validation_split=0.15,
+#     callbacks=[
+#         ModelCheckpoint("serialized_models/contact_detector.keras", save_best_only=True),
+#         ReduceLROnPlateau(patience=10),
+#         EarlyStopping(patience=20, restore_best_weights=True),
+#     ],
+# )

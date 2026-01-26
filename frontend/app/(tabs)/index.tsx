@@ -9,7 +9,7 @@ export default function HomeScreen() {
       <View className="pt-16 pb-6 px-6">
         <View className="flex-row items-center justify-between mb-1">
           <View>
-            <Text className="text-gray-900 text-4xl" style={{fontFamily: "Outfit_700Bold"}}>Tennis Pro</Text>
+            <Text className="text-gray-900 text-4xl" style={{fontFamily: "Outfit_700Bold"}}>TennisTracker</Text>
             <Text className="text-gray-500 text-base mt-1">Track your performance</Text>
           </View>
           <TouchableOpacity>
