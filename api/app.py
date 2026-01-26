@@ -19,6 +19,7 @@ from flask_limiter.util import get_remote_address
 from flask_limiter import Limiter
 from botocore.exceptions import ClientError
 import subprocess
+from flask_cors import CORS
 
 # flask api limits
 limiter = Limiter(
@@ -87,6 +88,7 @@ pose = mp_pose.Pose(
 )
 
 app = Flask(__name__)
+CORS(app)
 
 limiter.init_app(app)
 
