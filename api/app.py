@@ -20,6 +20,7 @@ from flask_limiter import Limiter
 from botocore.exceptions import ClientError
 import subprocess
 from flask_cors import CORS
+import time
 
 # flask api limits
 limiter = Limiter(
@@ -167,6 +168,16 @@ def payload_too_large(e):
 @limiter.limit("1 per minute")
 def main():
 
+    if os.getenv("USE_API_STUBS") == "true": # api stubs for frontend testing
+
+        time.sleep(np.random.uniform(1, 3))  # 1–3 seconds, fake loading times and random values
+        return jsonify({
+            "message": "video processed successfully (stub)",
+            "url": "https://example.com/fake_output.mp4",
+            "n_shots": np.random.randint(30,100),
+            "most_common_shot": list(LABELS.keys())[np.random.randint(0,3)]
+        })
+
     cap = None
     out = None
 
@@ -181,6 +192,13 @@ def main():
         MAX_TRAIL_LENGTH = 40
         coordinates = []
         prev_ball_centers = []
+        n_shots = 0 # stores total shots
+        shot_occurences = { # amount of occurences of each shot
+            "forehand": 0,
+            "backhand": 0,
+            "serve_overhead": 0,
+            "slice_volley": 0,
+        }
         
         # security checks
         # check if file is present
@@ -336,10 +354,14 @@ def main():
 
                 # probs is now (1, num_classes), take first element
                 probs = np.asarray(probs)[0]
+                n_shots += 1 # add to total number of shots
 
                 # get label and confidence
                 label = np.argmax(probs)
                 output_class = LABELS_INV[label]
+
+                shot_occurences[output_class] += 1 # increment occurence
+
                 confidence = probs[label]
 
                 # format text
@@ -488,7 +510,7 @@ def main():
             test_cap.release()
 
             # upload to R2
-            s3_url = upload_to_r2(output_path, f"processed/{filename}")
+            s3_url = upload_to_r2(output_path, r2_key=r2_key)
 
             # cleanup temporary AVI
             if os.path.exists(avi_path):
@@ -496,8 +518,10 @@ def main():
 
             # returns download url and success message
             return jsonify({
-                "message": "video processed successfully",
-                "url": s3_url
+                "message": "video processed successfully", # success
+                "url": s3_url, # will attributed to each user
+                "n_shots": n_shots, # added to the total shots of a user
+                "most_common_shot": max(shot_occurences, key=shot_occurences.get)
             })
         
         except Exception as e:
