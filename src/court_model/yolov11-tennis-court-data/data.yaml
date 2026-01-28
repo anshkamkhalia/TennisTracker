@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['tennis-court']
+
+roboflow:
+  workspace: tennis-gbs0z
+  project: tennis-court-detection-s9cys
+  version: 1
+  license: MIT
+  url: https://universe.roboflow.com/tennis-gbs0z/tennis-court-detection-s9cys/dataset/1

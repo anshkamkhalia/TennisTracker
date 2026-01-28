@@ -19,4 +19,4 @@ get these metrics for shot score:
 - depth
 - outcome
 
-fix contact detector, make it find individual frames instead of windows
+pause contact detector, try court modeling once again

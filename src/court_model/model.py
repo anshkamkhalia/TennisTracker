@@ -1,5 +1,5 @@
 # creates a relatively simple model to track keypoints on tennis courts
-# DEPRECATED -> using classical cv for court detection
+# DEPRECATED
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Conv2D, GlobalAveragePooling2D, BatchNormalization, Dropout
