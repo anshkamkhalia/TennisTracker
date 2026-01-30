@@ -1,16 +1,17 @@
 # tests the court modeling
+# has latest version of ball tracking
 
 from ultralytics import YOLO
 import cv2 as cv
 import numpy as np
 import sys
-from line_intersection import line_intersection
 
-i = sys.argv[2]  # video index
+i = sys.argv[1]  # video index
 video_path = f"data/court-level-videos/videoplayback{i}.mp4"
 
-# load trained yolo instance
-model = YOLO("hugging_face_best.pt")
+# load trained yolo instances
+ball_tracker = YOLO("hugging_face_best.pt")
+court_detector = YOLO("src/court_model/best.pt")
 
 # load video
 cap = cv.VideoCapture(video_path)
@@ -19,367 +20,228 @@ cap = cv.VideoCapture(video_path)
 out = cv.VideoWriter(
     f"outputs/run_court_model{i}.mp4",
     cv.VideoWriter_fourcc(*"mp4v"),
-    30,
+    50,
     (1280, 720)
 )
 
-videos60fps = [5,6,7,8] # videos that are more than 60fps
-verbose = False if int(sys.argv[1]) == 0 else True # verbose flag
 coordinates = [] # stores ball locations
 
 # trail storage
 trail = []
-MAX_TRAIL_LENGTH = 50
+MAX_TRAIL_LENGTH = 40
 
 frame_index = 0
-keypoints = None
-
-# clicked_points = []
-
-# def get_points(event, x, y, flags, param):
-#     if event == cv.EVENT_LBUTTONDOWN:
-#         clicked_points.append((x, y))
-#         print(f"point registered: {(x, y)}")
-
-# ret, frame = cap.read()
-# frame = cv.resize(frame, (1280, 720))
-# smoothing_trail = [] # for trajectory smoothing
-
-# cv.imshow("click points", frame)             # create window first
-# cv.setMouseCallback("click points", get_points)  # then register callback
-
-# while True:
-#     display = frame.copy()
-#     for pt in clicked_points:
-#         cv.circle(display, pt, 5, (0, 0, 255), -1)
-#     cv.imshow("click points", display)
-
-#     key = cv.waitKey(1) & 0xFF
-#     if key == 27 or len(clicked_points) >= 4:  # ESC or 4 points
-#         break
-
-# cv.destroyAllWindows()
-# cap.release()
-
-# mini-court size (HxW)
-# court_height = 300
-# court_width = 150
-# padding = 40
-
-# # create the mini-court canvas
-# court_canvas = np.zeros((court_height, court_width, 3), dtype=np.uint8)
-
-# # draw court lines (green)
-# cv.rectangle(
-#     court_canvas,
-#     (0, 0),
-#     (court_width - 1, court_height - 1),
-#     (0, 255, 0),
-#     2
-# )
-
-# net_y = court_height // 2
-# margin = court_width // 5
-# service_box_length = int((21 / 39) * (court_height // 2))
-
-# # net
-# cv.line(court_canvas, (0, net_y), (court_width, net_y), (0, 255, 0), 2)
-
-# # singles lines
-# cv.line(court_canvas, (margin, 0), (margin, court_height), (0, 255, 0), 2)
-# cv.line(court_canvas, (court_width - margin, 0),
-#         (court_width - margin, court_height), (0, 255, 0), 2)
-
-# # service box lines
-# cv.line(
-#     court_canvas,
-#     (margin, net_y - service_box_length),
-#     (court_width - margin, net_y - service_box_length),
-#     (0, 255, 0),
-#     2
-# )
-# cv.line(
-#     court_canvas,
-#     (margin, net_y + service_box_length),
-#     (court_width - margin, net_y + service_box_length),
-#     (0, 255, 0),
-#     2
-# )
-
-# # center service line (TEE)
-# cv.line(
-#     court_canvas,
-#     (court_width // 2, net_y - service_box_length),
-#     (court_width // 2, net_y + service_box_length),
-#     (0, 255, 0),
-#     2
-# )
-
-# padded_court_height = court_height + 2 * padding
-# padded_court_width = court_width + 2 * padding
-
-# padded_court = np.zeros(
-#     (padded_court_height, padded_court_width, 3),
-#     dtype=np.uint8
-# )
-
-# padded_court[
-#     padding:padding + court_height,
-#     padding:padding + court_width
-# ] = court_canvas
+prev_ball = None
+vels = []
 
 # load video
 cap = cv.VideoCapture(video_path)
-cy_prev1 = None
-cy_prev2 = None
-vy_prev = None
-bounce = False
 
-# bounce detection configs
-ball_history = []        # stores (cx, cy)
-bounce_points = []       # projected minimap points
-bounce_cooldown = 0      # frames to ignore after bounce
-vy = 0
-    
+ball_history = [] # stores (cx, cy)
+last_ball_px = None
+court_box = None
+k = 1 # for court shrinkage
+court_padding = 30 # amount of pixels to increase court size by
+
+# mini court
+mini_w, mini_h = 200, 400           # mini court size
+margin = 20                         # top-right corner padding
+mx, my = 1280 - mini_w - margin, margin
+mw, mh = mini_w, mini_h
+
+# create overlay with fully black opaque background
+mini_court_overlay = np.zeros((720, 1280, 3), dtype=np.uint8)
+cv.rectangle(mini_court_overlay, (mx, my), (mx + mw, my + mh), (0, 0, 0), -1)  # BLACK background
+
+# neon green lines
+line_color = (57, 255, 20)
+thick = 2
+
+# scale ratios based on real tennis court dimensions
+singles_ratio = 27 / 36
+net_y = my + mh // 2
+
+# bigger service boxes
+service_offset = int(mh * 0.25)  # ~1/4 from baseline to net
+
+# LEFT AND RIGHT SIDELINES
+cv.line(mini_court_overlay, (mx, my), (mx, my + mh), line_color, thick)           # left doubles
+cv.line(mini_court_overlay, (mx + mw, my), (mx + mw, my + mh), line_color, thick) # right doubles
+
+# LEFT AND RIGHT SINGLES LINES
+singles_offset = int(mw * (1 - singles_ratio) / 2)
+cv.line(mini_court_overlay, (mx + singles_offset, my), (mx + singles_offset, my + mh), line_color, thick)
+cv.line(mini_court_overlay, (mx + mw - singles_offset, my), (mx + mw - singles_offset, my + mh), line_color, thick)
+
+# BASELINES
+cv.line(mini_court_overlay, (mx, my), (mx + mw, my), line_color, thick)           # far baseline
+cv.line(mini_court_overlay, (mx, my + mh), (mx + mw, my + mh), line_color, thick) # near baseline
+
+# NET
+cv.line(mini_court_overlay, (mx, net_y), (mx + mw, net_y), line_color, thick)
+
+# SERVICE LINES (parallel to net) – bigger boxes
+cv.line(mini_court_overlay, (mx + singles_offset, my + service_offset),
+        (mx + mw - singles_offset, my + service_offset), line_color, thick)
+cv.line(mini_court_overlay, (mx + singles_offset, my + mh - service_offset),
+        (mx + mw - singles_offset, my + mh - service_offset), line_color, thick)
+
+# CENTER SERVICE LINES (perpendicular to net)
+center_x = mx + mw // 2
+cv.line(mini_court_overlay, (center_x, my + service_offset),
+        (center_x, my + mh - service_offset), line_color, thick)
+
 while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    cx = 0
-    cy = 0
-
-    frame_index += 1
-    if frame_index % 2 == 0 and i in videos60fps:
-        continue
-
     frame = cv.resize(frame, (1280, 720))
+    frame_index += 1
 
-    # predict on frame
-    results = model.track(
+    # detect ball
+    res = ball_tracker.predict(
         source=frame,
-        conf=0.20,
+        conf=0.25,
         save=False,
-        verbose=verbose
-    )
+        verbose=False
+    )[0]
 
-    r = results[0]
-    boxes = r.boxes
+    detected_centers = []
 
-    best_box = None
-    best_conf = 0
+    # extract center of each detected ball box
+    for b in res.boxes:
+        x1, y1, x2, y2 = b.xyxy[0]
+        cx = int((x1 + x2) / 2)
+        cy = int((y1 + y2) / 2)
+        detected_centers.append((cx, cy))
+    
+    # choose detection closest to previous ball position
+    moving_ball = None
+    if detected_centers:
+        if last_ball_px is None:
+            moving_ball = detected_centers[0]
+        else:
+            moving_ball = min(
+                detected_centers,
+                key=lambda p: np.hypot(p[0] - last_ball_px[0], p[1] - last_ball_px[1])
+            )
 
-    # select highest confidence box
-    for box in boxes:
-        conf = float(box.conf[0])
-        if conf > best_conf:
-            best_conf = conf
-            best_box = box
-
-    # if a ball was detected
-    if best_box is not None:
-        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-        coordinates.append([x1, y1, x2, y2])
-        
-        # draw bounding box
-        cv.rectangle(
-            frame,
-            (x1 + 5, y1 + 5),
-            (x2 + 5, y2 + 5),
-            (0, 255, 0),
-            3
-        )
-
-        # compute center
-        cx = (x1 + x2) // 2
-        cy = y2
+    if moving_ball:
+        cx, cy = moving_ball
+        last_ball_px = (cx, cy)
 
         trail.append((cx, cy))
         if len(trail) > MAX_TRAIL_LENGTH:
             trail.pop(0)
 
-    # draw trail (old → red, new → green)
-    for idx, (tx, ty) in enumerate(trail):
-        alpha = idx / len(trail)
-        r = int(255 * (1 - alpha))
-        b = int(255 * (1 - alpha))
-        g = int(255 * alpha)
-        color = (b, g, 0)
+    # draw fading trail
+    for j, (tx, ty) in enumerate(trail):
+        alpha = j / max(1, len(trail))
+        cv.circle(
+            frame,
+            (tx, ty),
+            max(1, j // 6),
+            (int(255 * (1 - alpha)), int(255 * alpha), 0),
+            -1
+        )
 
-        cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1)
+    # get court predictions
+    court_preds = court_detector.predict(
+        frame,
+        conf=0.25,
+        verbose=False,
+        stream=False
+    )[0]
 
-    # keypoint detections - on hold for now
+    if court_box is None or frame_index % 300 == 0: # get court locations at the beginning or every minute
+        # choose largest box
+        best_area = 0
+        for box in court_preds.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0]) # get box coords
 
-    # frame = cv.resize(frame, (1280, 720)) # resize frame
-    # blurred_frame = cv.GaussianBlur(frame, (5, 5), 0) # gaussian blur to clear noise
+            # calculate area
+            length = y2-y1
+            width = x2-x1
+            area = length * width
 
-    # # convert to hsv <- low saturation = white = court lines
-    # hsv_frame = cv.cvtColor(blurred_frame, cv.COLOR_BGR2HSV)
+            if area >= best_area:
+                court_box = box
+                best_area = area
 
-    # # create mask
-    # lower = np.array([0, 0, 150])  # H, S, V
-    # upper = np.array([180, 40, 255]) 
-    # mask = cv.inRange(hsv_frame, lower, upper)
+        try:
+            x1, y1, x2, y2 = map(int, court_box.xyxy[0])
+            
+        except Exception as e:
+            print(e)
 
-    # # apply mask
-    # masked_frame = cv.bitwise_and(hsv_frame, hsv_frame, mask=mask)
+    else:
+        pass
 
-    # # morphology
-    # kernel_open = cv.getStructuringElement( # opening kernel for discarding non-lines
-    #     cv.MORPH_ELLIPSE,
-    #     (3,3) # change to 3x3 or 7x7 based on performance
-    # )
+    # now that we have the court box we can scale the farther baseline
+    if court_box is not None:
+        x1, y1, x2, y2 = map(int, court_box.xyxy[0])
 
-    # mask_opened = cv.morphologyEx( # apply to mask
-    #     mask,              
-    #     cv.MORPH_OPEN,     
-    #     kernel_open,
-    # )
+        # (x1, y2), (x2, y2) <- closer baseline (near camera)
+        # (x1, y1), (x2, y1) <- farther baseline (away from camera, the one we want to change)
 
-    # kernel_close = cv.getStructuringElement( # create closing kernel for filling lines
-    #     cv.MORPH_RECT,     
-    #    (5, 5) # change to 3x3 or 7x7 based on performance
-    # )
-    
-    # mask_clean = cv.morphologyEx( # apply opening and closing
-    #     mask_opened,       
-    #     cv.MORPH_CLOSE,    
-    #     kernel_close,
-    # )
+        # reduce far baseline width
+        height = y2-y1
+        width = x2-x1
+        shrink_ratio = k * (height/width)
+        far_width = width * (1 - shrink_ratio)
+        dx = (width - far_width) / 2
 
-    # # apply edge detection
-    # edges = cv.Canny(
-    #     mask_clean,
-    #     threshold1=45,
-    #     threshold2=110,
-    #     apertureSize=3
-    # )
+        top_left = (x1 + dx - court_padding, y1 - court_padding)
+        top_right = (x2 - dx + court_padding, y1 - court_padding)
 
-    # # use hough transform
-    # lines = cv.HoughLinesP(
-    #     edges,          
-    #     rho=1,          
-    #     theta=np.pi/180,
-    #     threshold=100,   
-    #     minLineLength=60,
-    #     maxLineGap=50,  
-    # )
+        bottom_left  = (x1-court_padding, y2+court_padding)
+        bottom_right = (x2+court_padding, y2+court_padding)
 
-    # draw lines
-    # if lines is not None:
-    #     for x1, y1, x2, y2 in lines[:,0]:
-    #         cv.line(frame, (x1,y1), (x2,y2), (0,0,255), 2)
+        # draw
 
-    # frame_h, frame_w = frame.shape[:2]
+        # create an array of points in the correct order
+        pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
 
-    # court_offset_x = frame_w - padded_court_width
-    # court_offset_y = 0
+        # cv.polylines expects shape (num_points, 1, 2)
+        pts = pts.reshape((-1, 1, 2))
 
-    # frame[
-    #     court_offset_y:court_offset_y + padded_court_height,
-    #     court_offset_x:court_offset_x + padded_court_width
-    # ] = padded_court
+        # draw the trapezoid
+        cv.polylines(frame, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
 
+    mini_w, mini_h = 200, 400           # size of mini court
+    margin = 20                         # padding from top-right corner
+    mini_top_left = (1280 - mini_w - margin, margin)
+    mini_bottom_right = (1280 - margin, margin + mini_h)
 
-    # only compute homography if user clicked all 4 points
-    # if len(clicked_points) == 4:
-        # src/dst points for mapping court points into minimap points
-        # src_pts = np.array(clicked_points, dtype=np.float32)
-        # dst_pts = np.array([
-        #     [padding, padding],                               # top-left
-        #     [padding + court_width - 1, padding],            # top-right
-        #     [padding + court_width - 1, padding + court_height - 1], # bottom-right
-        #     [padding, padding + court_height - 1]            # bottom-left
-        # ], dtype=np.float32)
+    # copy frame
+    frame_with_mini = frame.copy()
 
-        # compute homography matrix between court and minimap
-        # H, _ = cv.findHomography(src_pts, dst_pts)
+    # overlay mini court permanently
+    alpha = 1.0  # fully opaque black background
+    mask = mini_court_overlay > 0
+    frame_with_mini[mask] = mini_court_overlay[mask]
 
-        # only update ball history if we have a detection
-        # if best_box is not None:
-        #     cx = (x1 + x2) // 2
-        #     cy = y2
+   # overlay the mini court permanently
+    frame_with_mini = frame.copy()
 
-        #     # append only real detections
-        #     ball_history.append((cx, cy))
-        #     if len(ball_history) > 3:
-        #         ball_history.pop(0)
+    # paste mini court overlay directly (black background + neon lines)
+    mx, my = mini_top_left
+    frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
 
-        #     # bounce detection: local minimum in y
-        #     if len(ball_history) == 3 and bounce_cooldown == 0:
-        #         (_, y0), (_, y1), (_, y2) = ball_history
+    # draw yellow ball if detected
+    if moving_ball and court_box is not None:
+        cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
+        ball_x_ratio = (cx - cx1) / (cx2 - cx1)
+        ball_y_ratio = (cy - cy1) / (cy2 - cy1)
+        
+        mini_ball_x = int(mx + ball_x_ratio * mw)
+        mini_ball_y = int(my + ball_y_ratio * mh)
 
-        #         # bounce occurs when middle point is lowest
-        #         if y0 > y1 and y2 > y1:
-        #             bounce_x, bounce_y = ball_history[1]
+        cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1)
 
-                    # project bounce point once
-                    # pt = np.array([[[bounce_x, bounce_y]]], dtype=np.float32)
-                    # projected = cv.perspectiveTransform(pt, H)
-
-                    # mini_x, mini_y = projected[0, 0]
-                    # bounce_points.append((int(mini_x), int(mini_y)))
-                    # bounce_points.append(bounce_x, bounce_y)
-
-                    # # short cooldown to avoid double-counting
-                    # bounce_cooldown = 8
-
-        # only update ball history if we have a detection
-        if best_box is not None:
-            cx = (x1 + x2) // 2
-            cy = y2
-
-            # append only real detections
-            ball_history.append((cx, cy))
-            if len(ball_history) > 3:
-                ball_history.pop(0)
-            print(ball_history)
-            # bounce detection: local minimum in y
-            if len(ball_history) == 3 and bounce_cooldown == 0:
-                (_, y0), (_, y1), (_, y2) = ball_history
-
-                # bounce occurs when middle point is lowest
-                if y0 > y1 and y2 > y1:
-                    bounce_x, bounce_y = ball_history[1]
-
-                    bounce_points.append(bounce_x, bounce_y)
-
-                    # short cooldown to avoid double-counting
-                    bounce_cooldown = 8
-
-        # countdown cooldown
-        if bounce_cooldown > 0:
-            bounce_cooldown -= 1
-
-        # draw all bounce points on minimap
-        for x, y in bounce_points:
-            # cv.circle(
-            #     padded_court,
-            #     (x, y),
-            #     8,
-            #     (np.random.randint(50,230), np.random.randint(50,230), np.random.randint(50,230)),
-            #     -1
-            # )
-            cv.circle(
-                frame,
-                (x, y),
-                8,
-                (np.random.randint(50,230), np.random.randint(50,230), np.random.randint(50,230)),
-                -1
-            )
-
-        # overlay minimap on frame
-        # frame[court_offset_y:court_offset_y + padded_court_height,
-        #     court_offset_x:court_offset_x + padded_court_width] = padded_court
-
-    cy_prev = cy
-    vy_prev = vy
-
-    cv.imshow("frame", frame)
-    cv.waitKey(1)
-
-    # write frame
-    # out.write(cv.resize(frame))
-
+    out.write(frame_with_mini)
+        
 cap.release()
 out.release()
+cv.destroyAllWindows()

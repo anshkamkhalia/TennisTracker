@@ -1,26 +1,26 @@
 # combines all models together to process a video
 
-from flask import Flask, jsonify, request
-from tensorflow.keras.saving import load_model
-import mediapipe as mp
-import cv2 as cv
-from ultralytics import YOLO
-import numpy as np
-from src.shot_classification.model import Attention, SequenceAttention, ShotClassifier
-from src.shot_classification.neutral_model import NeutralIdentifier, Attention
+from flask import Flask, jsonify, request # backend utils
+from tensorflow.keras.saving import load_model # model loading
+import mediapipe as mp # keypoint extraction (pose)
+import cv2 as cv # video handling and utils
+from ultralytics import YOLO # object detection
+import numpy as np # mathematical operations and arrays
+from src.shot_classification.model import Attention, SequenceAttention, ShotClassifier # subclassed models and layers
+from src.shot_classification.neutral_model import NeutralIdentifier, Attention # subclassed models and layers
 import supabase
 import os
-from werkzeug.utils import secure_filename
-import boto3
-from botocore.exceptions import NoCredentialsError
-from dotenv import load_dotenv
+from werkzeug.utils import secure_filename # for security checks
+import boto3 # cloudflare r2 client
+from botocore.exceptions import NoCredentialsError # exceptions
+from dotenv import load_dotenv # secure credential storage
 import datetime
-from flask_limiter.util import get_remote_address
-from flask_limiter import Limiter
-from botocore.exceptions import ClientError
-import subprocess
-from flask_cors import CORS
-import time
+from flask_limiter.util import get_remote_address # utils for rate limits
+from flask_limiter import Limiter # flask rate limiting
+from botocore.exceptions import ClientError # more exceptions
+import subprocess # running commands like ffmpeg
+from flask_cors import CORS # for react native
+import time # fake stub delay
 
 # flask api limits
 limiter = Limiter(
@@ -57,7 +57,6 @@ LABELS = {
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 
-# REPLACE THIS SECTION WITH SUPABASE MODEL LOADING
 # paths
 shot_model_path = "api/serialized_models/shot_classifier.keras"
 neutral_model_path = "api/serialized_models/neutrality.keras"
@@ -76,8 +75,9 @@ neutral_identifier = load_model(neutral_model_path, custom_objects={
 human_detector = YOLO("yolo11n.pt")
 # ball tracker
 ball_tracker = YOLO("hugging_face_best.pt")
+# court detector
+court_detector = YOLO("src/court_model/best.pt")
 
-# up until here
 
 seq_len = 90 
 
@@ -251,9 +251,61 @@ def main():
             (1280, 720)
         )
 
-
         if not out.isOpened():
             return jsonify({"error": "failed to open video writer"}), 400
+        
+        # mini court setup
+        court_box = None
+        k = 1 # for court shrinkage
+        court_padding = 30 # amount of pixels to increase court size by
+
+        # mini court
+        mini_w, mini_h = 200, 400           # mini court size
+        margin = 20                         # top-right corner padding
+        mx, my = 1280 - mini_w - margin, margin
+        mw, mh = mini_w, mini_h
+
+        # create overlay with fully black opaque background
+        mini_court_overlay = np.zeros((720, 1280, 3), dtype=np.uint8)
+        cv.rectangle(mini_court_overlay, (mx, my), (mx + mw, my + mh), (0, 0, 0), -1)  # BLACK background
+
+        # neon green lines
+        line_color = (57, 255, 20)
+        thick = 2
+
+        # scale ratios based on real tennis court dimensions
+        singles_ratio = 27 / 36
+        net_y = my + mh // 2
+
+        # bigger service boxes
+        service_offset = int(mh * 0.25)  # ~1/4 from baseline to net
+
+        # LEFT AND RIGHT SIDELINES
+        cv.line(mini_court_overlay, (mx, my), (mx, my + mh), line_color, thick)           # left doubles
+        cv.line(mini_court_overlay, (mx + mw, my), (mx + mw, my + mh), line_color, thick) # right doubles
+
+        # LEFT AND RIGHT SINGLES LINES
+        singles_offset = int(mw * (1 - singles_ratio) / 2)
+        cv.line(mini_court_overlay, (mx + singles_offset, my), (mx + singles_offset, my + mh), line_color, thick)
+        cv.line(mini_court_overlay, (mx + mw - singles_offset, my), (mx + mw - singles_offset, my + mh), line_color, thick)
+
+        # BASELINES
+        cv.line(mini_court_overlay, (mx, my), (mx + mw, my), line_color, thick)           # far baseline
+        cv.line(mini_court_overlay, (mx, my + mh), (mx + mw, my + mh), line_color, thick) # near baseline
+
+        # NET
+        cv.line(mini_court_overlay, (mx, net_y), (mx + mw, net_y), line_color, thick)
+
+        # SERVICE LINES (parallel to net) – bigger boxes
+        cv.line(mini_court_overlay, (mx + singles_offset, my + service_offset),
+                (mx + mw - singles_offset, my + service_offset), line_color, thick)
+        cv.line(mini_court_overlay, (mx + singles_offset, my + mh - service_offset),
+                (mx + mw - singles_offset, my + mh - service_offset), line_color, thick)
+
+        # CENTER SERVICE LINES (perpendicular to net)
+        center_x = mx + mw // 2
+        cv.line(mini_court_overlay, (center_x, my + service_offset),
+        (center_x, my + mh - service_offset), line_color, thick)
 
         while True:
             ret, frame = cap.read() # breaks if last frame
@@ -477,7 +529,98 @@ def main():
 
                 cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1)
 
-            out.write(frame) # write frame
+            # get court predictions
+            court_preds = court_detector.predict(
+                frame,
+                conf=0.25,
+                verbose=False,
+                stream=False
+            )[0]
+
+            if court_box is None or frame_index % 300 == 0: # get court locations at the beginning or every minute
+                # choose largest box
+                best_area = 0
+                for box in court_preds.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0]) # get box coords
+
+                    # calculate area
+                    length = y2-y1
+                    width = x2-x1
+                    area = length * width
+
+                    if area >= best_area:
+                        court_box = box
+                        best_area = area
+
+                try:
+                    x1, y1, x2, y2 = map(int, court_box.xyxy[0])
+                    
+                except Exception as e:
+                    print(e)
+
+            else:
+                pass
+
+            # now that we have the court box we can scale the farther baseline
+            if court_box is not None:
+                x1, y1, x2, y2 = map(int, court_box.xyxy[0])
+
+                # (x1, y2), (x2, y2) <- closer baseline (near camera)
+                # (x1, y1), (x2, y1) <- farther baseline (away from camera, the one we want to change)
+
+                # reduce far baseline width
+                height = y2-y1
+                width = x2-x1
+                shrink_ratio = k * (height/width)
+                far_width = width * (1 - shrink_ratio)
+                dx = (width - far_width) / 2
+
+                top_left = (x1 + dx - court_padding, y1 - court_padding)
+                top_right = (x2 - dx + court_padding, y1 - court_padding)
+
+                bottom_left  = (x1-court_padding, y2+court_padding)
+                bottom_right = (x2+court_padding, y2+court_padding)
+
+                # draw
+
+                # create an array of points in the correct order
+                pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
+
+                # cv.polylines expects shape (num_points, 1, 2)
+                pts = pts.reshape((-1, 1, 2))
+
+            mini_w, mini_h = 200, 400           # size of mini court
+            margin = 20                         # padding from top-right corner
+            mini_top_left = (1280 - mini_w - margin, margin)
+            mini_bottom_right = (1280 - margin, margin + mini_h)
+
+            # copy frame
+            frame_with_mini = frame.copy()
+
+            # overlay mini court permanently
+            alpha = 1.0  # fully opaque black background
+            mask = mini_court_overlay > 0
+            frame_with_mini[mask] = mini_court_overlay[mask]
+
+        # overlay the mini court permanently
+            frame_with_mini = frame.copy()
+
+            # paste mini court overlay directly (black background + neon lines)
+            mx, my = mini_top_left
+            frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
+
+            # draw yellow ball if detected
+            if moving_ball and court_box is not None:
+                cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
+                ball_x_ratio = (cx - cx1) / (cx2 - cx1)
+                ball_y_ratio = (cy - cy1) / (cy2 - cy1)
+                
+                mini_ball_x = int(mx + ball_x_ratio * mw)
+                mini_ball_y = int(my + ball_y_ratio * mh)
+
+                cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1)
+
+            out.write(frame_with_mini) # write frame
             print(frame_index)
 
         # save to database/storage

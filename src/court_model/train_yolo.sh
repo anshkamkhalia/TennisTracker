@@ -4,7 +4,7 @@ echo "starting yolo training"
 
 yolo task=detect mode=train \
   model=yolo11n.pt \
-  data=yolov11-tennis-court-data \
+  data=src/court_model/yolov11-tennis-court-data/data.yaml \
   epochs=80 \
   batch=8 \
   imgsz=960 \
@@ -20,6 +20,6 @@ yolo task=detect mode=train \
   scale=0.2 \
   fliplr=0.0 \
   plots=True \
-  > src/shot_scoring/training_log.txt 2>&1
+  > src/court_model/training_log.txt 2>&1
 
 echo "completed training. saved to training_log.txt"
