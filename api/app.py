@@ -247,7 +247,7 @@ def main():
         out = cv.VideoWriter(
             output_path.replace(".mp4", ".avi"),
             cv.VideoWriter_fourcc(*"MJPG"),
-            int(input_fps/2),
+            int(input_fps),
             (1280, 720)
         )
 
@@ -261,7 +261,7 @@ def main():
 
         # mini court
         mini_w, mini_h = 200, 400           # mini court size
-        margin = 20                         # top-right corner padding
+        margin = 20                          # top-right corner padding
         mx, my = 1280 - mini_w - margin, margin
         mw, mh = mini_w, mini_h
 
@@ -280,40 +280,28 @@ def main():
         # bigger service boxes
         service_offset = int(mh * 0.25)  # ~1/4 from baseline to net
 
-        # LEFT AND RIGHT SIDELINES
         cv.line(mini_court_overlay, (mx, my), (mx, my + mh), line_color, thick)           # left doubles
         cv.line(mini_court_overlay, (mx + mw, my), (mx + mw, my + mh), line_color, thick) # right doubles
-
-        # LEFT AND RIGHT SINGLES LINES
         singles_offset = int(mw * (1 - singles_ratio) / 2)
         cv.line(mini_court_overlay, (mx + singles_offset, my), (mx + singles_offset, my + mh), line_color, thick)
         cv.line(mini_court_overlay, (mx + mw - singles_offset, my), (mx + mw - singles_offset, my + mh), line_color, thick)
-
-        # BASELINES
         cv.line(mini_court_overlay, (mx, my), (mx + mw, my), line_color, thick)           # far baseline
         cv.line(mini_court_overlay, (mx, my + mh), (mx + mw, my + mh), line_color, thick) # near baseline
-
-        # NET
         cv.line(mini_court_overlay, (mx, net_y), (mx + mw, net_y), line_color, thick)
-
-        # SERVICE LINES (parallel to net) – bigger boxes
         cv.line(mini_court_overlay, (mx + singles_offset, my + service_offset),
                 (mx + mw - singles_offset, my + service_offset), line_color, thick)
         cv.line(mini_court_overlay, (mx + singles_offset, my + mh - service_offset),
                 (mx + mw - singles_offset, my + mh - service_offset), line_color, thick)
 
-        # CENTER SERVICE LINES (perpendicular to net)
         center_x = mx + mw // 2
         cv.line(mini_court_overlay, (center_x, my + service_offset),
         (center_x, my + mh - service_offset), line_color, thick)
 
+        print("request recieved, beginning video processing")
+
         while True:
             ret, frame = cap.read() # breaks if last frame
             if not ret: break
-
-            frame_index += 1
-            if frame_index % 2 == 0: # temporary frame skips
-                continue 
 
             # resize to 720p
             frame = cv.resize(frame, (1280, 720))
@@ -446,9 +434,9 @@ def main():
             # get text size
             (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
 
-            # top-right corner coordinates
-            x = frame.shape[1] - text_w - padding*2
-            y = text_h + padding*2
+           # top-left corner coordinates
+            x = padding
+            y = text_h + padding * 2
 
             # create background rectangle with slight transparency
             overlay = frame.copy()
@@ -621,7 +609,6 @@ def main():
                 cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1)
 
             out.write(frame_with_mini) # write frame
-            print(frame_index)
 
         # save to database/storage
         r2_key = f"processed/{filename}" # output path in bucket
