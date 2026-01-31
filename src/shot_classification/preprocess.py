@@ -8,7 +8,11 @@ from concurrent.futures import ProcessPoolExecutor      # parallel computing - h
 from typing import Tuple                                # function notation
 import numpy as np                                      # math
 from sklearn.model_selection import train_test_split    # splitting
-from tqdm import tqdm                                   # progress bar
+from tqdm import tqdm                                   # progress bat
+from tensorflow.keras import mixed_precision
+
+# Set global policy to float16 (mixed precision)
+mixed_precision.set_global_policy("mixed_float16")
 
 # establish paths
 ROOT = "data/shot-classification"
@@ -26,9 +30,9 @@ LABELS = {
 
 # copy map: number of times each class will be duplicated
 COPY_MAP = {
-    "forehand": 40,
-    "backhand": 40,
-    "slice_volley": 15,
+    "forehand": 50,
+    "backhand": 50,
+    "slice_volley": 10,
     "serve_overhead": 25, 
 }
 
@@ -119,15 +123,19 @@ def preprocess(
 
         cap = cv.VideoCapture(os.path.join(os.path.join(ROOT, path), filename)) # uses opencv to read video data
         
-        # loop through frames of current video
+        NUM_LANDMARKS = 33
+        SEQUENCE_LENGTH = 33  # timesteps for LSTM
+
+        sequence_buffer = []  # store frames temporarily
+
         while True:
-
             ret, frame = cap.read()
-            if not ret: break # ends if no more frames
+            if not ret: 
+                break  # end of video
 
-            frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4) # resize with linear interpolation for higher quality
+            frame = cv.resize(frame, (1280, 720), interpolation=cv.INTER_LANCZOS4)
 
-            # crop human out using yolo
+            # crop human out using YOLO
             results = detector.predict(
                 source=frame,
                 classes=[0],
@@ -138,74 +146,54 @@ def preprocess(
             r = results[0]
             r_boxes = r.boxes
 
-            if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
+            if r_boxes is None or len(r_boxes) == 0:
                 continue
-                
-            # pick bb 
-            best_box = None
-            max_area = 0
 
-            for box in r_boxes:
-                x1, y1, x2, y2 = box.xyxy[0] # get coordinates
-                area = (x2-x1) * (y2-y1) # get area of box
-                if area > max_area:
-                    max_area = area
-                    best_box = box
+            # pick largest bounding box
+            best_box = max(r_boxes, key=lambda box: (box.xyxy[0][2]-box.xyxy[0][0]) * (box.xyxy[0][3]-box.xyxy[0][1]))
 
-            # actually crop the person
-            x1, y1, x2, y2 = map(int, best_box.xyxy[0])  # get coordinates
-
-            # increase box size by 40%
-            box_w = x2 - x1
-            box_h = y2 - y1
-
-            pad_w = int(0.2 * box_w)
-            pad_h = int(0.2 * box_h)
-
-            x1 -= pad_w
-            y1 -= pad_h
-            x2 += pad_w
-            y2 += pad_h
-
-            # clamp to frame bounds
-            h, w, _ = frame.shape
-            x1 = max(0, x1)
-            y1 = max(0, y1)
-            x2 = min(w, x2)
-            y2 = min(h, y2)
+            x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+            box_w, box_h = x2 - x1, y2 - y1
+            pad_w, pad_h = int(0.2 * box_w), int(0.2 * box_h)
+            x1, y1 = max(0, x1 - pad_w), max(0, y1 - pad_h)
+            x2, y2 = min(frame.shape[1], x2 + pad_w), min(frame.shape[0], y2 + pad_h)
 
             cropped_person = frame[y1:y2, x1:x2]
-
-            del frame # clear from memory to avoid crashing (ProcessPoolExecutor)
-
-            if cropped_person.size == 0: # skip if box is too small
+            del frame
+            if cropped_person.size == 0:
                 continue
 
-            stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
+            stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB)
+            pose_results = pose.process(stroke)
 
-            results = pose.process(stroke) # process with mediapipe
+            if not pose_results.pose_landmarks:
+                continue
 
-            if results.pose_landmarks: # check if pose was detected
-                landmarks = results.pose_landmarks.landmark # extract landmark object
+            # create frame array with guaranteed 33 landmarks
+            pose_frame = np.zeros((NUM_LANDMARKS, 3), dtype=np.float32)
+            for i, landmark in enumerate(pose_results.pose_landmarks.landmark):
+                pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
 
-                pose_frame = [] # to store landmarks that form a full pose
+            # flatten to 99 features
+            pose_frame = pose_frame.flatten()
+            sequence_buffer.append(pose_frame)
 
-                for landmark in landmarks: # iterate and extract
-                    
-                    pose_frame.append(np.array([landmark.x, landmark.y, landmark.z])) # store landmarks to form a full pose
-
-                pose_frame = np.array(pose_frame, dtype=np.float32) # convert to array
-
-                # add original points
-                X_train_local.append(pose_frame) # append keypoints to list in the form of an array
+            # if we have a full sequence of 33 frames
+            if len(sequence_buffer) == SEQUENCE_LENGTH:
+                sequence = np.stack(sequence_buffer)  # shape (33, 99)
+                X_train_local.append(sequence)
                 if shot_type is not None:
-                    y_train_local.append(LABELS[shot_type]) # numerical representation (0,1,2 ...)
+                    y_train_local.append(LABELS[shot_type])
 
-                # augment and copy
+                # augmentation for the sequence
                 for _ in range(n_copies):
-                    X_train_local.append(augment_keypoints(pose_frame)) # append augmented keypoints to list in the form of an array
+                    augmented_sequence = np.array([augment_keypoints(f.reshape(NUM_LANDMARKS,3)).flatten() for f in sequence])
+                    X_train_local.append(augmented_sequence)
                     if shot_type is not None:
-                        y_train_local.append(LABELS[shot_type]) # numerical representation (0,1,2 ...)
+                        y_train_local.append(LABELS[shot_type])
+
+                # remove first frame to slide window
+                sequence_buffer.pop(0)
 
             else:
                 continue # skips is no one was detected (should not happen due to YOLO boxes)

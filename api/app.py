@@ -672,4 +672,3 @@ def main():
         for path in ["input_path", "output_path", "avi_path"]:
             if path in locals() and os.path.exists(locals()[path]):
                 os.remove(locals()[path])
-

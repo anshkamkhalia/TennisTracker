@@ -112,15 +112,16 @@ X_test = X_test[test_perm]
 y_test = y_test[test_perm]
 
 # create model instance
-shot_classifier = ShotClassifier()
+shot_classifier = ShotClassifierV2()
 
 # callbacks
 
 # model checkpoint - saves best model during training
 model_checkpoint = ModelCheckpoint(
-    'serialized_models/shot_classifierh5.h5',         # file to save
-    monitor='val_loss',      # what to monitor
-    save_best_only=True,     # only save when its the best
+    'serialized_models/shot_classifier_v2.weights.h5',  # file to save weights
+    monitor='val_loss',
+    save_best_only=True,
+    save_weights_only=True,
     verbose=1
 )
 
@@ -135,8 +136,8 @@ reduce_lr = ReduceLROnPlateau(
 
 # early stopping - stops if model has not been improving
 early_stopping = EarlyStopping(
-    monitor='val_accuracy',      # what to monitor
-    patience=10,             # how many epochs to wait before stopping
+    monitor='val_loss',      # what to monitor
+    patience=7,             # how many epochs to wait before stopping
     restore_best_weights=True
 )
 
