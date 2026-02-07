@@ -16,7 +16,7 @@ videos = os.listdir(source_video_path) # list of all video names
 detector = YOLO("hugging_face_best.pt") # loads ball detector (teacher model)
 sigma = 10 # spread 
 
-BATCH_SIZE = 30 # chunking videos to avoid memory failure; n frames per batch
+BATCH_SIZE = 10 # chunking videos to avoid memory failure; n frames per batch
 batch_idx = 1
 
 # load videos
