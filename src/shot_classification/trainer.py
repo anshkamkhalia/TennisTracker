@@ -119,10 +119,10 @@ shot_classifier = ShotClassifier()
 
 # model checkpoint - saves best model during training
 model_checkpoint = ModelCheckpoint(
-    'serialized_models/shot_classifier.weights.h5',  # file to save weights
+    'serialized_models/shot_classifier_with_gelu.keras',  # file to save weights
     monitor='val_loss',
     save_best_only=True,
-    save_weights_only=True,
+    save_weights_only=False,
     verbose=1
 )
 

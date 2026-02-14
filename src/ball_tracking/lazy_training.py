@@ -20,10 +20,10 @@ tracknet = TrackNet() # this is what we are training
 dummy_input = tf.zeros((1, 360, 640, 3), dtype=tf.float32)
 _ = tracknet(dummy_input)  # now model builds
 video_dir = "src/ball_tracking/ball_tracking_data"
-EPOCHS = 100
+EPOCHS = 10
 BATCH_SIZE = 4
 
-def make_gaussian_kernel(size=41, sigma=8):
+def make_gaussian_kernel(size=41, sigma=5):
     """builds a small gaussian kernel to avoid creating multiple full heatmaps"""
 
     ax = np.arange(size) - size // 2
@@ -68,7 +68,7 @@ def tracknet_loss(y_true, y_pred, eps=0.001, lambda_bg=0.005):
     ) / (tf.reduce_sum(bg_mask) + 1e-6)
 
     # combined loss
-    total_loss = fg_loss + lambda_bg * bg_loss
+    total_loss = fg_loss # + lambda_bg * bg_loss
     return total_loss
 
 def video_frame_generator(video_dir):
@@ -111,7 +111,7 @@ def video_frame_generator(video_dir):
                 cy = int((y1 + y2) / 2)
 
                 H, W = 360, 640
-                heatmap = np.zeros((H, W), dtype=np.float16)
+                heatmap = np.zeros((H, W), dtype=np.float32)
 
                 # bounds for stamping
                 x0 = max(0, cx - K)
@@ -147,7 +147,7 @@ val_videos = ["videoplayback2.mp4"]
 
 # loss_fn = tf.keras.losses.BinaryCrossentropy(dtype=tf.float32) # force float32
 loss_fn = tracknet_loss
-optimizer = tf.keras.optimizers.Adam(1e-4)
+optimizer = tf.keras.optimizers.Adam(3e-4)
 
 patience = 7
 
@@ -163,7 +163,7 @@ def train_step(x, y):
         preds = tf.cast(preds, tf.float32) # cast to float32 to avoid destroying gradients
         # masked loss
         y = tf.cast(y, tf.float32)
-        loss = tracknet_loss(y, preds)
+        loss = loss_fn(y, preds)
 
     grads = tape.gradient(loss, vars)
     optimizer.apply_gradients(zip(grads, vars))
@@ -246,7 +246,7 @@ for video in train_videos:
             preds = tracknet(x, training=False) # get predictions
             # use masked loss
             loss = tracknet_loss(y, preds)
-            test_loss += loss.numpy() # increment
+            test_loss += loss_fn.numpy() # increment
             test_samples += x.shape[0] # 2 samples per batch
 
             # to store val predictions

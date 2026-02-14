@@ -60,7 +60,7 @@ LABELS = {
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 # paths
-shot_model_path = "api/serialized_models/shot_classifier.keras"
+shot_model_path = "api/serialized_models/shot_classifier2.keras"
 neutral_model_path = "api/serialized_models/neutrality.keras"
 # classifies shots
 shot_classifier = load_model(shot_model_path, custom_objects={ # load model with correct classes
