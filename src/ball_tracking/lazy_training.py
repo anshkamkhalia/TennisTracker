@@ -245,8 +245,8 @@ for video in train_videos:
         for x,y in test_iter:
             preds = tracknet(x, training=False) # get predictions
             # use masked loss
-            loss = tracknet_loss(y, preds)
-            test_loss += loss_fn.numpy() # increment
+            loss = loss_fn(y, preds)
+            test_loss += loss.numpy() # increment
             test_samples += x.shape[0] # 2 samples per batch
 
             # to store val predictions

@@ -14,17 +14,17 @@ class TrackNet(Model):
         # encoder
         self.layer1 = SeparableConv2D(64, (3,3), activation="gelu", padding="same")
         self.layer2 = LayerNormalization()
-        self.layer3 = MaxPooling2D(pool_size=2, strides=1)
+        self.layer3 = MaxPooling2D(pool_size=2, strides=2, padding="same")
 
         self.layer4 = SeparableConv2D(128, (3,3), activation="gelu", padding="same")
         self.layer5 = LayerNormalization()
-        self.layer6 = MaxPooling2D(pool_size=2, strides=1)
+        self.layer6 = MaxPooling2D(pool_size=2, strides=2, padding="same")
 
         self.layer7 = SeparableConv2D(256, (3,3), activation="gelu", padding="same")
         self.layer8 = LayerNormalization()
-        self.layer9 = MaxPooling2D(pool_size=2, strides=1)
+        self.layer9 = MaxPooling2D(pool_size=2, strides=2, padding="same")
 
-        self.layer10 = SeparableConv2D(256, (3,3), activation="gelu", padding="same")
+        self.layer10 = SeparableConv2D(192, (3,3), activation="gelu", padding="same")
         self.layer11 = LayerNormalization()
 
         # decoder
@@ -38,7 +38,7 @@ class TrackNet(Model):
 
         self.layer18 = UpSampling2D()
         self.layer19 = SeparableConv2D(64, (3,3), activation="relu", padding="same")
-        self.layer20 = LayerNormalization()
+        # self.layer20 = LayerNormalization()
 
         self.layer21 = SeparableConv2D(32, (3,3), activation="relu", padding="same")
         self.layer22 = SeparableConv2D(1, (1,1), activation="sigmoid")
@@ -71,7 +71,7 @@ class TrackNet(Model):
 
         x = self.layer18(x)
         x = self.layer19(x)
-        x = self.layer20(x)
+        # x = self.layer20(x)
 
         x = self.layer21(x)
         x = self.layer22(x)
