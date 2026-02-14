@@ -20,8 +20,6 @@ tracknet = TrackNet()
 dummy_input = tf.zeros((1, 360, 640, 3), dtype=tf.float32)
 _ = tracknet(dummy_input)  # now model builds
 data_root_dir = "src/ball_tracking/ball_tracking_data/Dataset"
-EPOCHS = 25
-BATCH_SIZE = 2
 
 def make_gaussian_kernel(size=21, sigma=4):
     """builds a small gaussian kernel to avoid creating multiple full heatmaps"""
@@ -61,6 +59,7 @@ def data_generator(game_path: str):
                 
                 # load image
                 img = cv.imread(os.path.join(clip_path, filename))
+                img = cv.resize(img, (640, 360)) # resize image
                 img = img.astype(np.float16) / 255.0 # normalize
 
                 heatmap = np.zeros((360, 640), dtype=np.float16) # create heatmap
@@ -75,12 +74,13 @@ def data_generator(game_path: str):
                     x2 = min(cx + HALF + 1, 640)
                     y2 = min(cy + HALF + 1, 360)
 
-                    kx1 = HALF - (cx - x1)
-                    ky1 = HALF - (cy - y1)
+                    kx1 = max(HALF - cx, 0)
+                    ky1 = max(HALF - cy, 0)
                     kx2 = kx1 + (x2 - x1)
                     ky2 = ky1 + (y2 - y1)
 
-                    heatmap[y1:y2, x1:x2] = GAUSSIAN[ky1:ky2, kx1:kx2]
+                    if kx2 > kx1 and ky2 > ky1:  # ensures non-empty slice
+                        heatmap[y1:y2, x1:x2] = GAUSSIAN[ky1:ky2, kx1:kx2]
 
                 yield img, heatmap[..., None]
 
@@ -94,6 +94,9 @@ def multi_game_generator(game_list):
 # setup
 optimizer = tf.keras.optimizers.Adam(2e-4)
 loss_fn = tf.keras.losses.BinaryCrossentropy()
+EPOCHS = 25
+BATCH_SIZE = 4
+SHUFFLE = 1000
 
 train_games = [f"game{i}" for i in range(1, 9)] # 8 games for training
 val_games = [f"game{i}" for i in range(9, 11)] # 2 games for testing
@@ -134,7 +137,7 @@ dataset = (
         )
 
     )
-    .shuffle(1000)
+    .shuffle(SHUFFLE)
     .batch(BATCH_SIZE)
     .prefetch(tf.data.AUTOTUNE)
 )
@@ -173,6 +176,7 @@ for epoch in range(EPOCHS):
         loss = train_step(x,y) # defined above
         train_loss += loss.numpy() * x.shape[0]
         train_samples += x.shape[0] # n samples per batch
+        print(f"train_samples:{train_samples}")
 
         del x,y # instant gc
 

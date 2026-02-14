@@ -3,6 +3,7 @@ venv/
 outputs/
 data/
 court_data.zip
+ball_dataset.zip
 node_modules/
 upload_models.py
 tennistracker-videos-894b7f7f9669.json
