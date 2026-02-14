@@ -12,36 +12,36 @@ class TrackNet(Model):
         super().__init__(**kwargs)
 
         # encoder
-        self.layer1 = Conv2D(64, (3,3), activation="gelu", padding="same")
+        self.layer1 = SeparableConv2D(64, (3,3), activation="gelu", padding="same")
         self.layer2 = LayerNormalization()
         self.layer3 = MaxPooling2D(pool_size=2, strides=1)
 
-        self.layer4 = Conv2D(128, (3,3), activation="gelu", padding="same")
+        self.layer4 = SeparableConv2D(128, (3,3), activation="gelu", padding="same")
         self.layer5 = LayerNormalization()
         self.layer6 = MaxPooling2D(pool_size=2, strides=1)
 
-        self.layer7 = Conv2D(256, (3,3), activation="gelu", padding="same")
+        self.layer7 = SeparableConv2D(256, (3,3), activation="gelu", padding="same")
         self.layer8 = LayerNormalization()
         self.layer9 = MaxPooling2D(pool_size=2, strides=1)
 
-        self.layer10 = Conv2D(512, (3,3), activation="gelu", padding="same")
+        self.layer10 = SeparableConv2D(256, (3,3), activation="gelu", padding="same")
         self.layer11 = LayerNormalization()
 
         # decoder
         self.layer12 = UpSampling2D()
-        self.layer13 = Conv2D(192, (3,3), activation="gelu", padding="same")
+        self.layer13 = SeparableConv2D(192, (3,3), activation="gelu", padding="same")
         self.layer14 = LayerNormalization()
 
         self.layer15 = UpSampling2D()
-        self.layer16 = Conv2D(128, (3,3), activation="gelu", padding="same")
+        self.layer16 = SeparableConv2D(128, (3,3), activation="gelu", padding="same")
         self.layer17 = LayerNormalization()
 
         self.layer18 = UpSampling2D()
-        self.layer19 = Conv2D(64, (3,3), activation="relu", padding="same")
+        self.layer19 = SeparableConv2D(64, (3,3), activation="relu", padding="same")
         self.layer20 = LayerNormalization()
 
-        self.layer21 = Conv2D(32, (3,3), activation="relu", padding="same")
-        self.layer22 = Conv2D(1, (1,1), activation="sigmoid")
+        self.layer21 = SeparableConv2D(32, (3,3), activation="relu", padding="same")
+        self.layer22 = SeparableConv2D(1, (1,1), activation="sigmoid")
 
     def call(self, x, training=False):
         # encoder

@@ -21,7 +21,7 @@ dummy_input = tf.zeros((1, 360, 640, 3), dtype=tf.float32)
 _ = tracknet(dummy_input)  # now model builds
 video_dir = "src/ball_tracking/ball_tracking_data"
 EPOCHS = 10
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 
 def make_gaussian_kernel(size=41, sigma=5):
     """builds a small gaussian kernel to avoid creating multiple full heatmaps"""
