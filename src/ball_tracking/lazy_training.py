@@ -59,6 +59,8 @@ def data_generator(game_path: str):
                 
                 # load image
                 img = cv.imread(os.path.join(clip_path, filename))
+                h_orig, w_orig = img.shape[:2]
+
                 img = cv.resize(img, (640, 360)) # resize image
                 img = img.astype(np.float16) / 255.0 # normalize
 
@@ -66,8 +68,11 @@ def data_generator(game_path: str):
 
                 if cx >= 0 and cy >= 0:
 
-                    cx = int(cx)
-                    cy = int(cy)
+                    scale_x = 640 / w_orig
+                    scale_y = 360 / h_orig
+
+                    cx = int(cx * scale_x)
+                    cy = int(cy * scale_y)
 
                     x1 = max(cx - HALF, 0)
                     y1 = max(cy - HALF, 0)
