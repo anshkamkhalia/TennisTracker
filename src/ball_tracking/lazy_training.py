@@ -38,34 +38,36 @@ EMPTY_HEATMAP = np.zeros((360, 640, 1), dtype=np.float16)
 
 @tf.function
 @tf.keras.saving.register_keras_serializable(package="custom_loss")
-def focal_mse_loss(y_true, y_pred, alpha=0.75, gamma=2.0, eps=1e-6, mse_weight=0.5):
-    """
-    combined focal+mse loss
-    """
-    # ensure float32
+def focal_mse_loss(y_true, y_pred,
+                   alpha=0.75,
+                   gamma=2.0,
+                   mse_weight=0.5,
+                   eps=1e-6):
+
+    # force float32 for stability (important with mixed precision)
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
-    
-    # clamp predictions to avoid log(0)
+
+    # Clamp predictions to avoid log(0)
     y_pred = tf.clip_by_value(y_pred, eps, 1.0 - eps)
 
-    # foreground mask
-    fg_mask = y_true > 0.001
+    # Foreground mask (where ball exists)
+    fg_mask = tf.cast(y_true > 0.001, tf.float32)
+    bg_mask = 1.0 - fg_mask
 
-    # pixel-wise focal loss
-    loss_focal = tf.where(
-        fg_mask,
-        -alpha * tf.pow(1 - y_pred, gamma) * tf.math.log(y_pred),
-        -(1 - alpha) * tf.pow(y_pred, gamma) * tf.math.log(1 - y_pred)
+    focal_fg = -alpha * tf.pow(1.0 - y_pred, gamma) * tf.math.log(y_pred)
+    focal_bg = -(1.0 - alpha) * tf.pow(y_pred, gamma) * tf.math.log(1.0 - y_pred)
+
+    focal_loss = tf.reduce_mean(
+        fg_mask * focal_fg + bg_mask * focal_bg
     )
-    loss_focal = tf.reduce_mean(loss_focal)
 
-    # foreground MSE (only where ball is)
-    fg_pixels = tf.boolean_mask(y_true - y_pred, fg_mask)
-    loss_mse = tf.reduce_mean(tf.square(fg_pixels))
+    fg_mse = tf.reduce_sum(
+        fg_mask * tf.square(y_true - y_pred)
+    ) / (tf.reduce_sum(fg_mask) + eps)
 
-    # combined loss
-    total_loss = loss_focal + mse_weight * loss_mse
+    total_loss = focal_loss + mse_weight * fg_mse
+
     return total_loss
 
 def video_frame_generator(video_dir):
@@ -144,7 +146,10 @@ val_videos = ["videoplayback2.mp4"]
 
 # loss_fn = tf.keras.losses.BinaryCrossentropy(dtype=tf.float32) # force float32
 loss_fn = focal_mse_loss
-optimizer = tf.keras.optimizers.Adam(2e-4)
+optimizer = tf.keras.optimizers.Adam(
+    learning_rate=1e-4,
+    clipnorm=1.0
+)
 
 patience = 7
 
