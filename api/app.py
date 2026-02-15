@@ -3,6 +3,9 @@
 # - shot classification
 # - ball detection/tracking
 # - 2d court modeling with ball
+# - ball speed estimation
+
+# -------------------------------------------------------------------------------- setup --------------------------------------------------------------------------------
 
 # new fastapi backend
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
@@ -123,6 +126,8 @@ ALLOWED_MIME_TYPES = {
 }
 ALLOWED_EXTENSIONS = {"mp4", "mov", "mkv"}
 
+# -------------------------------------------------------------------------------- helper functions --------------------------------------------------------------------------------
+
 # helper functions
 def allowed_file(filename):
     """checks if a filename has a valid extension"""
@@ -172,6 +177,8 @@ def generate_signed_url(r2_key, expiration_seconds=3600):
 #         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
 #         return response
 
+# -------------------------------------------------------------------------------- main preprocessing function --------------------------------------------------------------------------------
+
 @app.post("/process-video")
 @limiter.limit("1/minute")
 async def main(request: Request, video: UploadFile = File(...)):
@@ -190,6 +197,8 @@ async def main(request: Request, video: UploadFile = File(...)):
     # initialize here so no scope errors in finally block
     cap = None
     out = None
+
+# -------------------------------------------------------------------------------- configs --------------------------------------------------------------------------------
 
     try:
         # config variables
@@ -219,6 +228,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         mps_to_mph_conversion_factor = 2.2369363 # conversion rate from mps to mph
         prev_velocity = None
         last_ball_px = None
+
+# -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
         # security checks
         # check if file is present
@@ -276,6 +287,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         if not out.isOpened():
             raise HTTPException(status_code=400, detail="failed to open video writer")
         
+# -------------------------------------------------------------------------------- mini court setup --------------------------------------------------------------------------------
+        
         # mini court setup
         court_box = None
         k = 1 # for court shrinkage
@@ -325,6 +338,8 @@ async def main(request: Request, video: UploadFile = File(...)):
 
         print("request recieved, beginning video processing") # beginning message
 
+# -------------------------------------------------------------------------------- main loop --------------------------------------------------------------------------------
+
         # main processing loop
         while True:
             ret, frame = cap.read() # breaks if last frame
@@ -336,6 +351,8 @@ async def main(request: Request, video: UploadFile = File(...)):
             frame = cv.resize(frame, (1280, 720))
 
             orig_frame = frame.copy()
+
+# -------------------------------------------------------------------------------- shot classification --------------------------------------------------------------------------------
 
             # crop human using yolo to get mediapipe keypoints
             results = human_detector.predict(
@@ -497,6 +514,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                 cv.LINE_AA
             )
 
+# -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
+
             # ball tracking
             ball_results = ball_tracker.predict(
                 source=orig_frame,
@@ -558,6 +577,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                 color = (b, g, 0)
 
                 cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1) # draw ball trail
+
+# -------------------------------------------------------------------------------- court detection --------------------------------------------------------------------------------
 
             # get court predictions
             court_preds = court_detector.predict(
@@ -629,6 +650,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                 # cv.polylines expects shape (num_points, 1, 2)
                 pts = pts.reshape((-1, 1, 2))
 
+# -------------------------------------------------------------------------------- update mini court --------------------------------------------------------------------------------
+
             mini_w, mini_h = 200, 400           # size of mini court
             margin = 20                         # padding from top-right corner
             mini_top_left = (1280 - mini_w - margin, margin)
@@ -663,7 +686,9 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1) # draw ball
 
-            # # speed calculation
+# -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
+
+            # speed calculation
             if len(speed_buffer) >= speed_buffer_size:
 
                 final = speed_buffer[-1]
@@ -757,6 +782,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                 cv.putText(frame_with_mini, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
 
             out.write(frame_with_mini) # export frame
+
+        # -------------------------------------------------------------------------------- save to r2 --------------------------------------------------------------------------------
 
         # save to database/storage
         r2_key = f"processed/{filename}" # output path in bucket
