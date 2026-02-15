@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 
-from tensorflow.keras.saving import load_model # model loading
+import tensorflow as tf
 import mediapipe as mp # keypoint extraction (pose)
 import cv2 as cv # video handling and utils
 from ultralytics import YOLO # object detection
@@ -60,17 +60,17 @@ LABELS = {
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 # paths
-shot_model_path = "api/serialized_models/shot_classifier2.keras"
+shot_model_path = "api/serialized_models/shot_classifier.keras"
 neutral_model_path = "api/serialized_models/neutrality.keras"
 # classifies shots
-shot_classifier = load_model(shot_model_path, custom_objects={ # load model with correct classes
+shot_classifier = tf.keras.saving.load_model(shot_model_path, custom_objects={ # load model with correct classes
     "ShotClassifier": ShotClassifier,
     "Attention": Attention,
     "SequenceAttention": SequenceAttention,
 })
 
 # identifies neutral positions
-neutral_identifier = load_model(neutral_model_path, custom_objects={
+neutral_identifier = tf.keras.saving.load_model(neutral_model_path, custom_objects={
     "NeutralIdentifier": NeutralIdentifier,
     "Attention": Attention,
 })
@@ -201,7 +201,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         trail = [] # stores ball trail
         MAX_TRAIL_LENGTH = 40
         coordinates = [] # stores ball locations
-        prev_ball_centers = [] # stores previous ball centers
+        
         n_shots = 0 # stores total shots
         shot_occurences = { # amount of occurences of each shot
             "forehand": 0,

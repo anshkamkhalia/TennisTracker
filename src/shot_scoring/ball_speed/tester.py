@@ -38,6 +38,8 @@ cap = cv.VideoCapture(video_path)
 
 ball_history = [] # stores (cx, cy)
 last_ball_px = None
+smoothed_ball = None
+smoothing_alpha = 0.4  # smoothing factor (0.3–0.5 good for 50-60 FPS)
 court_box = None
 k = 1 # for court shrinkage
 court_padding = 30 # amount of pixels to increase court size by
@@ -50,6 +52,7 @@ speed_buffer = []
 speed_buffer_size = V_FPS # ~1 second
 mps_to_mph_conversion_factor = 2.2369363 # conversion rate from mps to mph
 prev_velocity = None
+
 
 # mini court
 mini_w, mini_h = 200, 400           # mini court size
@@ -134,11 +137,22 @@ while True:
                 detected_centers,
                 key=lambda p: np.hypot(p[0] - last_ball_px[0], p[1] - last_ball_px[1])
             )
-            speed_buffer.append(moving_ball)
 
     if moving_ball:
         cx, cy = moving_ball
-        last_ball_px = (cx, cy)
+
+        # initialize smoothing
+        if smoothed_ball is None:
+            smoothed_ball = (cx, cy)
+        else:
+            sx, sy = smoothed_ball
+            smooth_cx = int(smoothing_alpha * cx + (1 - smoothing_alpha) * sx)
+            smooth_cy = int(smoothing_alpha * cy + (1 - smoothing_alpha) * sy)
+            smoothed_ball = (smooth_cx, smooth_cy)
+
+        last_ball_px = smoothed_ball
+        cx, cy = smoothed_ball  # overwrite with smoothed values
+        speed_buffer.append((cx, cy))
 
         trail.append((cx, cy))
         if len(trail) > MAX_TRAIL_LENGTH:

@@ -181,7 +181,6 @@ for epoch in range(EPOCHS):
         loss = train_step(x,y) # defined above
         train_loss += loss.numpy() * x.shape[0]
         train_samples += x.shape[0] # n samples per batch
-        print(f"train_samples:{train_samples}")
 
         del x,y # instant gc
 
