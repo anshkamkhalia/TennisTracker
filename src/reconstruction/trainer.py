@@ -83,7 +83,6 @@ dataset = (
         )
     )
     .shuffle(SHUFFLE)
-    .batch(BATCH_SIZE)
     .prefetch(tf.data.AUTOTUNE)
 )
 
@@ -100,7 +99,6 @@ test_dataset = (
         )
     )
     .shuffle(SHUFFLE)
-    .batch(BATCH_SIZE)
     .prefetch(tf.data.AUTOTUNE)
 )
 
