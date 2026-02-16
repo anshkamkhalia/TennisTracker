@@ -43,10 +43,10 @@ def multi_game_generator(X_list, y_list):
         y_path = os.path.join(data_root_dir, y) # reference root dir
         yield from synthetic_data_gen(X_path, y_path)
 
-train_files_features = [f"X_train_chunk{i}.npy" for i in range(1,45)]
-test_files_features = [f"X_train_chunk{i}.npy" for i in range(45,51)]
-train_files_labels = [f"y_train_chunk{i}.npy" for i in range(1,45)]
-test_files_labels = [f"y_train_chunk{i}.npy" for i in range(45,51)]
+train_files_features = [f"X_train_chunk{i}.npy" for i in range(1,40)]
+test_files_features = [f"X_train_chunk{i}.npy" for i in range(40,51)]
+train_files_labels = [f"y_train_chunk{i}.npy" for i in range(1,40)]
+test_files_labels = [f"y_train_chunk{i}.npy" for i in range(40,51)]
 
 @tf.function
 def train_step(x,y):
