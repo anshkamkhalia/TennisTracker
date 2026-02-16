@@ -3,7 +3,7 @@
 import tensorflow as tf
 import numpy as np
 
-@tf.keras.saving.register_keras_serializable(package="custom_layer")
+@tf.keras.utils.register_keras_serializable(package="custom_layer")
 class PositionalEncoding(tf.keras.layers.Layer):
     def __init__(self, seq_len, d_model):
         super().__init__() # initialize parent class
@@ -30,7 +30,7 @@ class PositionalEncoding(tf.keras.layers.Layer):
     def call(self, x):
         return x + self.pos_encoding[:, :tf.shape(x)[1], :]
 
-@tf.keras.saving.register_keras_serializable(package="custom_model")
+@tf.keras.utils.register_keras_serializable(package="custom_model")
 class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
 
     """a transformer to reconstruct depth from 2d data"""
@@ -40,6 +40,9 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
 
         # positional encoding
         self.pos_encoding = PositionalEncoding(seq_len, d_model)
+
+        # dense to map input features -> d_model
+        self.input_dense = tf.keras.layers.Dense(d_model) 
 
         # first transformer block
         self.mha1 = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=d_model)
@@ -59,7 +62,7 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
     def call(self, x, training=False):
 
         # project input 2D -> d_model
-        x = tf.keras.layers.Dense(self.pos_encoding.pos_encoding.shape[-1])(x)  # shape -> (batch, seq_len, d_model)
+        x = self.input_dense(x)
 
         # add positional encoding
         x = self.pos_encoding(x)
@@ -80,3 +83,7 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
         x = self.ffn_dense3(x)  # shape -> (batch, seq_len, 1)
 
         return x
+    
+    def build(self, input_shape):
+        # this will initialize all layers with the input shape
+        super().build(input_shape)

@@ -7,22 +7,24 @@ from model import Reconstructor
 import gc
 import os
 
-tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
+# tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
 gpus = tf.config.experimental.list_physical_devices("GPU")
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 reconstructor = Reconstructor() # initialize model
-reconstructor.build(None, 60, 2) # batch size, trajectories, features
+_ = reconstructor(tf.random.uniform((1, 60, 2)))  # call once with dummy input
 data_root_dir = "src/reconstruction/synthetic_data"
 
 def synthetic_data_gen(feature_path, label_path):
     """used to lazily load data"""
     # keep in float32
-    X_train = np.load(feature_path, dtype=np.float32)
-    y_train = np.loadr(label_path=np.float32)
-
-    yield X_train, y_train
+    X_train = np.load(feature_path)
+    y_train = np.load(label_path)
+    y_train = y_train[..., np.newaxis]  # shape becomes (batch_size, 60, 1)
+    n_samples = X_train.shape[0]
+    for i in range(n_samples):
+        yield X_train[i], y_train[i]
 
 def multi_game_generator(X_list, y_list):
     """for loading multiple datasets"""
@@ -40,10 +42,10 @@ BATCH_SIZE = 32
 SHUFFLE = 1000
 PATIENCE = 20
 
-train_files_features = [f"X_train_chunk{i}" for i in range(1,45)]
-test_files_features = [f"X_train_chunk{i}" for i in range(45,51)]
-train_files_labels = [f"y_train_chunk{i}" for i in range(1,45)]
-test_files_labels = [f"y_train_chunk{i}" for i in range(45,51)]
+train_files_features = [f"X_train_chunk{i}.npy" for i in range(1,45)]
+test_files_features = [f"X_train_chunk{i}.npy" for i in range(45,51)]
+train_files_labels = [f"y_train_chunk{i}.npy" for i in range(1,45)]
+test_files_labels = [f"y_train_chunk{i}.npy" for i in range(45,51)]
 
 @tf.function
 def train_step(x,y):
@@ -75,8 +77,8 @@ dataset = (
 
         lambda: multi_game_generator(train_files_features, train_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(None, 60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(None, 60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(60, 2), dtype=tf.float16), # inputs
+            tf.TensorSpec(shape=(60, 1), dtype=tf.float16), # outputs
         )
     )
     .shuffle(SHUFFLE)
@@ -92,8 +94,8 @@ test_dataset = (
 
         lambda: multi_game_generator(test_files_features, test_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(None, 60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(None, 60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(60, 2), dtype=tf.float16), # inputs
+            tf.TensorSpec(shape=(60, 1), dtype=tf.float16), # outputs
         )
     )
     .shuffle(SHUFFLE)
