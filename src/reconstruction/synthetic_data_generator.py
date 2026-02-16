@@ -53,66 +53,87 @@ def simulate_trajectory(
 
 # METERS — realistic tennis court ranges
 X_RANGE = (0, 32) # left-right across court
-Y_RANGE = (5, 51) # baseline → net (in meters)
-Z_RANGE = (1, 9) # initial hit height
+Y_RANGE = (0, 5)  # slightly behind baseline to allow full rally
+Z_RANGE = (0.8, 2.2) # initial hit height
 
-# Velocity ranges (m/s)
-VX_RANGE = (-5, 5) # horizontal, side-to-side
-VY_RANGE = (10, 35) # toward net
-VZ_RANGE = (5, 17) # vertical
+# velocity ranges (m/s) tuned for tennis groundstrokes
+VX_RANGE = (-4, 4)  # horizontal, side-to-side
+VY_MEAN = 29        # forward velocity mean
+VY_STD = 2.5        # forward velocity std
+VY_MIN = 18         # clip minimum forward speed
+VY_MAX = 33         # clip maximum forward speed
+VZ_MEAN = 3.2       # vertical velocity mean
+VZ_STD = 0.7        # vertical velocity std
+VZ_MIN = 1.8        # clip minimum vertical speed
+VZ_MAX = 5.0        # clip maximum vertical speed
 
 # number of trajectories
 N = 10
 
 rng = np.random.default_rng()
 
-X_train = []
-y_train = []
 
-N_total = 170_000  # total number of trajectories
-chunk_size = 10_000  # save 10k per file
-output_dir = "src/reconstruction/synthetic_data"
-os.makedirs(output_dir, exist_ok=True)
+def main():
+    N_total = 500_000  # total number of trajectories
+    chunk_size = 10_000  # save 10k per file
+    output_dir = "src/reconstruction/synthetic_data"
+    os.makedirs(output_dir, exist_ok=True)
 
-for chunk_idx in range(N_total // chunk_size):
-    X_train = []
-    y_train = []
+    for chunk_idx in range(N_total // chunk_size):
+        X_train = []
+        y_train = []
 
-    for _ in range(chunk_size):
-        # random starting position
-        start = (rng.uniform(*X_RANGE),
-                 rng.uniform(*Y_RANGE),
-                 rng.uniform(*Z_RANGE))
+        for _ in range(chunk_size):
+            # random starting position
+            start = (rng.uniform(*X_RANGE),
+                     rng.uniform(*Y_RANGE),
+                     rng.uniform(*Z_RANGE))
 
-        # random velocities
-        velocity = (rng.uniform(*VX_RANGE),
-                    rng.uniform(*VY_RANGE),
-                    rng.uniform(*VZ_RANGE))
+            # sample realistic forward velocity with bias for fast rally
+            vy = rng.normal(loc=VY_MEAN, scale=VY_STD)
+            vy = np.clip(vy, VY_MIN, VY_MAX)
 
-        # random dampening factor
-        e = rng.uniform(0.6, 0.9)
+            # sample vertical velocity for flatter arc
+            vz = rng.normal(loc=VZ_MEAN, scale=VZ_STD)
+            vz = np.clip(vz, VZ_MIN, VZ_MAX)
 
-        # random total flight time
-        total_time = 2 * velocity[2] / G + rng.uniform(0.5, 1.5)
+            # random horizontal velocity
+            vx = rng.uniform(*VX_RANGE)
 
-        # simulate trajectory
-        traj = simulate_trajectory(start, velocity, n_frames, total_time, e)
+            # pack velocities
+            velocity = (vx, vy, vz)
 
-        # convert to pixel space
-        uv = np.zeros_like(traj[:, :2])
-        uv[:,0] = traj[:,0] * meters_to_pixels_x
-        uv[:,1] = traj[:,1] * meters_to_pixels_y
-        z = traj[:,2]
+            # vertical restitution for tennis ball-court bounce
+            e = rng.uniform(0.45, 0.62)
 
-        X_train.append(uv)
-        y_train.append(z)
+            # keep first bounce later in the sequence without overextending clip duration
+            # (first-bounce time from initial height z0 under gravity)
+            z0 = start[2]
+            t_first_bounce = (vz + np.sqrt(vz**2 + 2 * G * z0)) / G
+            total_time = t_first_bounce + rng.uniform(0.35, 0.65)
 
-    # convert to arrays
-    X_train = np.array(X_train, dtype=np.float32)
-    y_train = np.array(y_train, dtype=np.float32)
+            # simulate trajectory
+            traj = simulate_trajectory(start, velocity, n_frames, total_time, e)
 
-    # save chunk
-    np.save(os.path.join(output_dir, f"X_train_chunk{chunk_idx+1}.npy"), X_train)
-    np.save(os.path.join(output_dir, f"y_train_chunk{chunk_idx+1}.npy"), y_train)
+            # convert to pixel space
+            uv = np.zeros_like(traj[:, :2])
+            uv[:,0] = traj[:,0] * meters_to_pixels_x
+            uv[:,1] = traj[:,1] * meters_to_pixels_y
+            z = traj[:,2]
 
-    print(f"saved chunk {chunk_idx+1}/{N_total // chunk_size}")
+            X_train.append(uv)
+            y_train.append(z)
+
+        # convert to arrays
+        X_train = np.array(X_train, dtype=np.float32)
+        y_train = np.array(y_train, dtype=np.float32)
+
+        # save chunk
+        np.save(os.path.join(output_dir, f"X_train_chunk{chunk_idx+1}.npy"), X_train)
+        np.save(os.path.join(output_dir, f"y_train_chunk{chunk_idx+1}.npy"), y_train)
+
+        print(f"saved chunk {chunk_idx+1}/{N_total // chunk_size}")
+
+
+if __name__ == "__main__":
+    main()
