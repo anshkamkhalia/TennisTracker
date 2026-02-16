@@ -16,15 +16,25 @@ reconstructor = Reconstructor() # initialize model
 _ = reconstructor(tf.random.uniform((1, 60, 2)))  # call once with dummy input
 data_root_dir = "src/reconstruction/synthetic_data"
 
-def synthetic_data_gen(feature_path, label_path):
-    """used to lazily load data"""
-    # keep in float32
-    X_train = np.load(feature_path)
-    y_train = np.load(label_path)
-    y_train = y_train[..., np.newaxis]  # shape becomes (batch_size, 60, 1)
+# model setup
+optimizer = tf.keras.optimizers.Adam(2e-4)
+loss_fn = tf.keras.losses.MeanSquaredError()
+EPOCHS = 100
+BATCH_SIZE = 256
+SHUFFLE = 1000
+PATIENCE = 20
+
+def synthetic_data_gen(feature_path, label_path, batch_size=BATCH_SIZE):
+    """used to lazily load data in batches"""
+    X_train = np.load(feature_path).astype(np.float32)
+    y_train = np.load(label_path).astype(np.float32)
+    y_train = y_train[..., np.newaxis]  # shape -> (n_samples, 60, 1)
+
     n_samples = X_train.shape[0]
-    for i in range(n_samples):
-        yield X_train[i], y_train[i]
+    # iterate over batches
+    for start in range(0, n_samples, batch_size):
+        end = start + batch_size
+        yield X_train[start:end], y_train[start:end]
 
 def multi_game_generator(X_list, y_list):
     """for loading multiple datasets"""
@@ -32,15 +42,6 @@ def multi_game_generator(X_list, y_list):
         X_path = os.path.join(data_root_dir, x) # reference root dir
         y_path = os.path.join(data_root_dir, y) # reference root dir
         yield from synthetic_data_gen(X_path, y_path)
-
-
-# model setup
-optimizer = tf.keras.optimizers.Adam(2e-4)
-loss_fn = tf.keras.losses.MeanSquaredError()
-EPOCHS = 100
-BATCH_SIZE = 32
-SHUFFLE = 1000
-PATIENCE = 20
 
 train_files_features = [f"X_train_chunk{i}.npy" for i in range(1,45)]
 test_files_features = [f"X_train_chunk{i}.npy" for i in range(45,51)]
@@ -77,8 +78,8 @@ dataset = (
 
         lambda: multi_game_generator(train_files_features, train_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(256, 60, 2), dtype=tf.float16), # inputs
+            tf.TensorSpec(shape=(256, 60, 1), dtype=tf.float16), # outputs
         )
     )
     .shuffle(SHUFFLE)
@@ -94,8 +95,8 @@ test_dataset = (
 
         lambda: multi_game_generator(test_files_features, test_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(256, 60, 2), dtype=tf.float16), # inputs
+            tf.TensorSpec(shape=(256, 60, 1), dtype=tf.float16), # outputs
         )
     )
     .shuffle(SHUFFLE)
