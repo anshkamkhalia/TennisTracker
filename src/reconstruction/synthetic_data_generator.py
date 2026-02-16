@@ -74,8 +74,8 @@ rng = np.random.default_rng()
 
 
 def main():
-    N_total = 500_000  # total number of trajectories
-    chunk_size = 10_000  # save 10k per file
+    N_total = (12_800) * 100  # total number of trajectories
+    chunk_size = 12_800  # save 10k per file
     output_dir = "src/reconstruction/synthetic_data"
     os.makedirs(output_dir, exist_ok=True)
 
