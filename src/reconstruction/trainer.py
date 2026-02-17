@@ -13,7 +13,7 @@ from tqdm import tqdm
 FX, FY = 800.0, 800.0  # focal length (pixels)
 CX, CY = 640.0, 360.0  # principal point (image center)
 
-tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
+# tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
 gpus = tf.config.experimental.list_physical_devices("GPU")
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
@@ -23,7 +23,10 @@ _ = reconstructor(tf.random.uniform((1, 120, 2)))  # call once with dummy input 
 data_root_dir = "src/reconstruction/synthetic_data"
 
 # model setup
-optimizer = tf.keras.optimizers.Adam(2e-4)
+optimizer = tf.keras.optimizers.Adam(
+    1e-4,
+    clipnorm=1.0
+)
 loss_fn = tf.keras.losses.MeanSquaredError()
 EPOCHS = 100
 BATCH_SIZE = 256
