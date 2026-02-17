@@ -28,14 +28,15 @@ class PositionalEncoding(tf.keras.layers.Layer):
         return pos / np.power(10000, (2 * (i//2)) / np.float32(d_model))
 
     def call(self, x):
-        return x + self.pos_encoding[:, :tf.shape(x)[1], :]
+        pos = tf.cast(self.pos_encoding[:, :tf.shape(x)[1], :], x.dtype)
+        return x + pos
 
 @tf.keras.utils.register_keras_serializable(package="custom_model")
-class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
+class Reconstructor(tf.keras.Model):
 
     """a transformer to reconstruct depth from 2d data"""
 
-    def __init__(self, seq_len=60, d_model=64, **kwargs):
+    def __init__(self, seq_len=120, d_model=64, **kwargs):
         super().__init__(**kwargs)
 
         # positional encoding
@@ -44,15 +45,30 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
         # dense to map input features -> d_model
         self.input_dense = tf.keras.layers.Dense(d_model) 
 
+        # first lstm block
+        self.lstm1 = tf.keras.layers.LSTM(64, activation="tanh", return_sequences=True)
+        self.lstm2 = tf.keras.layers.LSTM(128, activation="tanh", return_sequences=True)
+        self.bn1 = tf.keras.layers.BatchNormalization()
+
         # first transformer block
         self.mha1 = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=d_model)
         self.dropout1 = tf.keras.layers.Dropout(0.3)
         self.ln1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 
+        # second lstm block
+        self.lstm3 = tf.keras.layers.LSTM(256, activation="tanh", return_sequences=True)
+        self.lstm4 = tf.keras.layers.LSTM(512, activation="tanh", return_sequences=True)
+        self.bn2 = tf.keras.layers.BatchNormalization()
+
         # second transformer block
         self.mha2 = tf.keras.layers.MultiHeadAttention(num_heads=8, key_dim=d_model)
         self.dropout2 = tf.keras.layers.Dropout(0.3)
         self.ln2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+        # third lstm block
+        self.lstm5 = tf.keras.layers.LSTM(256, activation="tanh", return_sequences=True)
+        self.lstm6 = tf.keras.layers.LSTM(512, activation="tanh", return_sequences=True)
+        self.bn3 = tf.keras.layers.BatchNormalization()
 
         # third transformer block
         self.mha3 = tf.keras.layers.MultiHeadAttention(num_heads=16, key_dim=d_model)
@@ -73,15 +89,30 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
         # add positional encoding
         x = self.pos_encoding(x)
 
+        # temporal block 1
+        x = self.lstm1(x)
+        x = self.lstm2(x)
+        x = self.bn1(x)
+
         # transformer block 1
         attn_output1 = self.mha1(query=x, value=x, key=x)
         attn_output1 = self.dropout1(attn_output1, training=training)
         x = self.ln1(x + attn_output1)  # residual connection + normalization
 
+        # temporal block 2
+        x = self.lstm3(x)
+        x = self.lstm4(x)
+        x = self.bn2(x)
+
         # transformer block 2
         attn_output2 = self.mha2(query=x, value=x, key=x)
         attn_output2 = self.dropout2(attn_output2, training=training)
         x = self.ln2(x + attn_output2)  # residual connection + normalization
+
+        # temporal block 3
+        x = self.lstm5(x)
+        x = self.lstm6(x)
+        x = self.bn3(x)
 
         # transformer block 3
         attn_output3 = self.mha3(query=x, value=x, key=x)

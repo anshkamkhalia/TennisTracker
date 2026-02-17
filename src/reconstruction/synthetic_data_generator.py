@@ -101,8 +101,8 @@ def main():
     output_dir = "src/reconstruction/synthetic_data"
     os.makedirs(output_dir, exist_ok=True)
 
-    N_total = 10_000  # total trajectories
-    chunk_size = 10_000
+    N_total = 16_384 * 50  # total trajectories
+    chunk_size = 16_384
 
     for chunk_idx in range(N_total // chunk_size):
         X_train, y_train = [], []

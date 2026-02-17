@@ -6,13 +6,14 @@ import pandas as pd
 from model import Reconstructor
 import gc
 import os
+from tqdm import tqdm
 
 # camera intrinsics (match synthetic_data_generator.py)
 # These define the normalized image plane for 3D reconstruction
 FX, FY = 800.0, 800.0  # focal length (pixels)
 CX, CY = 640.0, 360.0  # principal point (image center)
 
-# tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
+tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
 gpus = tf.config.experimental.list_physical_devices("GPU")
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
@@ -122,6 +123,17 @@ test_dataset = (
 
 print("test dataset created")
 
+def count_samples(file_list):
+    total = 0
+    for f in file_list:
+        arr = np.load(os.path.join(data_root_dir, f))
+        total += arr.shape[0]
+        del arr
+    return total
+
+train_total_samples = count_samples(train_files_features)
+steps_per_epoch = train_total_samples // BATCH_SIZE
+
 # training loop
 for epoch in range(EPOCHS):
     print(f"epoch {epoch+1}\n")
@@ -131,19 +143,24 @@ for epoch in range(EPOCHS):
     train_iter = iter(dataset) # avoid generator exhaustion
 
     # train model
-    for x,y in train_iter:
+    with tqdm(total=steps_per_epoch, desc=f"epoch {epoch+1}") as pbar:
+        for x,y in train_iter:
 
-        loss = train_step(x,y) # defined above
-        train_loss += loss.numpy() * x.shape[0]
-        train_samples += x.shape[0] # n samples per batch
+            loss = train_step(x,y) # defined above
+            train_loss += loss.numpy() * x.shape[0]
+            train_samples += x.shape[0] # n samples per batch
 
-        del x,y # instant gc
+            del x,y # instant gc
 
-    if train_samples > 0 :
-        train_loss /= train_samples # average
-    else:
-        print("no train samples this epoch")
-        continue
+            avg_loss = train_loss / train_samples
+            pbar.set_postfix({"loss": f"{avg_loss:.6f}"})
+            pbar.update(1)
+
+        if train_samples > 0 :
+            train_loss /= train_samples # average
+        else:
+            print("no train samples this epoch")
+            continue
 
     # evaluate model
     test_loss = 0.0
