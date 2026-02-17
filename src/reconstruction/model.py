@@ -79,7 +79,7 @@ class Reconstructor(tf.keras.Model):
         self.ffn_dense1 = tf.keras.layers.Dense(128, activation="gelu")
         self.ffn_dense2 = tf.keras.layers.Dense(256, activation="gelu")
         self.ffn_dense3 = tf.keras.layers.Dense(512, activation="gelu")
-        self.ffn_dense4 = tf.keras.layers.Dense(1)  # output Z for each frame
+        self.ffn_dense4 = tf.keras.layers.Dense(1, activation=None)  # output Z for each frame
 
     def call(self, x, training=False):
 
