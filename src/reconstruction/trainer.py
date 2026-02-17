@@ -7,13 +7,18 @@ from model import Reconstructor
 import gc
 import os
 
+# camera intrinsics (match synthetic_data_generator.py)
+# These define the normalized image plane for 3D reconstruction
+FX, FY = 800.0, 800.0  # focal length (pixels)
+CX, CY = 640.0, 360.0  # principal point (image center)
+
 # tf.keras.mixed_precision.set_dtype_policy('mixed_float16') # set to float 16 instead of float 32
 gpus = tf.config.experimental.list_physical_devices("GPU")
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 reconstructor = Reconstructor() # initialize model
-_ = reconstructor(tf.random.uniform((1, 60, 2)))  # call once with dummy input
+_ = reconstructor(tf.random.uniform((1, 120, 2)))  # call once with dummy input - 120 frames now
 data_root_dir = "src/reconstruction/synthetic_data"
 
 # model setup
@@ -24,17 +29,30 @@ BATCH_SIZE = 256
 SHUFFLE = 1000
 PATIENCE = 20
 
+# noise augmentation parameters
+ADD_NOISE_DURING_TRAINING = True
+NOISE_STD_MIN = 0.0
+NOISE_STD_MAX = 0.02  # normalized image plane noise
+
 def synthetic_data_gen(feature_path, label_path, batch_size=BATCH_SIZE):
-    """used to lazily load data in batches"""
+    """used to lazily load data in batches with optional noise augmentation"""
     X_train = np.load(feature_path).astype(np.float32)
     y_train = np.load(label_path).astype(np.float32)
-    y_train = y_train[..., np.newaxis]  # shape -> (n_samples, 60, 1)
+    y_train = y_train[..., np.newaxis]  # shape -> (n_samples, 120, 1)
 
     n_samples = X_train.shape[0]
     # iterate over batches
     for start in range(0, n_samples, batch_size):
         end = start + batch_size
-        yield X_train[start:end], y_train[start:end]
+        X_batch = X_train[start:end].copy()
+        y_batch = y_train[start:end].copy()
+        
+        # add noise augmentation during training (on normalized image plane)
+        if ADD_NOISE_DURING_TRAINING:
+            noise_std = np.random.uniform(NOISE_STD_MIN, NOISE_STD_MAX)
+            X_batch += np.random.normal(0, noise_std, X_batch.shape)
+        
+        yield X_batch, y_batch
 
 def multi_game_generator(X_list, y_list):
     """for loading multiple datasets"""
@@ -78,8 +96,8 @@ dataset = (
 
         lambda: multi_game_generator(train_files_features, train_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(256, 60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(256, 60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(256, 120, 2), dtype=tf.float32), # inputs (120 frames now)
+            tf.TensorSpec(shape=(256, 120, 1), dtype=tf.float32), # outputs (120 frames now)
         )
     )
     .shuffle(SHUFFLE)
@@ -94,8 +112,8 @@ test_dataset = (
 
         lambda: multi_game_generator(test_files_features, test_files_labels), # generator function
         output_signature=(
-            tf.TensorSpec(shape=(256, 60, 2), dtype=tf.float16), # inputs
-            tf.TensorSpec(shape=(256, 60, 1), dtype=tf.float16), # outputs
+            tf.TensorSpec(shape=(256, 120, 2), dtype=tf.float32), # inputs (120 frames now)
+            tf.TensorSpec(shape=(256, 120, 1), dtype=tf.float32), # outputs (120 frames now)
         )
     )
     .shuffle(SHUFFLE)

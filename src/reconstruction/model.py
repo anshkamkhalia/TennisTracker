@@ -54,10 +54,16 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
         self.dropout2 = tf.keras.layers.Dropout(0.3)
         self.ln2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 
+        # third transformer block
+        self.mha3 = tf.keras.layers.MultiHeadAttention(num_heads=16, key_dim=d_model)
+        self.dropout3 = tf.keras.layers.Dropout(0.3)
+        self.ln3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
         # feed-forward network
         self.ffn_dense1 = tf.keras.layers.Dense(128, activation="gelu")
         self.ffn_dense2 = tf.keras.layers.Dense(256, activation="gelu")
-        self.ffn_dense3 = tf.keras.layers.Dense(1)  # output Z for each frame
+        self.ffn_dense3 = tf.keras.layers.Dense(512, activation="gelu")
+        self.ffn_dense4 = tf.keras.layers.Dense(1)  # output Z for each frame
 
     def call(self, x, training=False):
 
@@ -77,10 +83,16 @@ class Reconstructor(tf.keras.Model):  # note: tf.keras.Model, not tf.keras.model
         attn_output2 = self.dropout2(attn_output2, training=training)
         x = self.ln2(x + attn_output2)  # residual connection + normalization
 
+        # transformer block 3
+        attn_output3 = self.mha3(query=x, value=x, key=x)
+        attn_output3 = self.dropout3(attn_output3, training=training)
+        x = self.ln3(x + attn_output3)
+
         # feed-forward
         x = self.ffn_dense1(x)
         x = self.ffn_dense2(x)
-        x = self.ffn_dense3(x)  # shape -> (batch, seq_len, 1)
+        x = self.ffn_dense3(x)
+        x = self.ffn_dense4(x)
 
         return x
     
