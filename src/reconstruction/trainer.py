@@ -71,21 +71,30 @@ train_files_labels = [f"y_train_chunk{i}.npy" for i in range(1,40)]
 test_files_labels = [f"y_train_chunk{i}.npy" for i in range(40,51)]
 
 @tf.function
-def train_step(x,y):
-
-    """uses tf.function to optimize training speed"""
-
+def train_step(x, y,lambda_bounce=5.0):
     vars = reconstructor.trainable_variables
     with tf.GradientTape() as tape:
         preds = reconstructor(x, training=True)
         preds = tf.cast(preds, tf.float32)
-
-        # loss
         y = tf.cast(y, tf.float32)
+
+        # standard MSE loss
         loss = loss_fn(y, preds)
 
-    grads = tape.gradient(loss, vars) # calculate gradients
-    optimizer.apply_gradients(zip(grads, vars))# apply gradients
+        # compute approximate vertical velocity
+        vz_pred = preds[:, 1:, :] - preds[:, :-1, :]
+        vz_gt = y[:, 1:, :] - y[:, :-1, :]
+
+        # detect frames near bounce (where vertical velocity changes sign)
+        sign_change = tf.cast(vz_gt[:, :-1, :] * vz_gt[:, 1:, :] < 0, tf.float32)
+        # bounce loss weighted at frames with sign change
+        bounce_loss = tf.reduce_mean(sign_change * tf.square(vz_pred[:, :-1, :] - vz_gt[:, :-1, :]))
+
+        # total loss
+        loss += lambda_bounce * bounce_loss
+
+    grads = tape.gradient(loss, vars)
+    optimizer.apply_gradients(zip(grads, vars))
     return loss
 
 # model checkpointing params
@@ -170,12 +179,26 @@ for epoch in range(EPOCHS):
     test_samples = 0
     test_iter = iter(test_dataset)
 
-    for step, (x,y) in enumerate(test_iter):
+    lambda_bounce = 5.0  # same weight as training
+
+    for step, (x, y) in enumerate(test_iter):
         preds = reconstructor(x, training=False)
         preds = tf.cast(preds, tf.float32)
         y = tf.cast(y, tf.float32)
+
+        # standard MSE
         loss = loss_fn(y, preds)
-        test_loss += loss.numpy() * x.shape[0]
+
+        # bounce-aware component
+        vz_pred = preds[:, 1:, :] - preds[:, :-1, :]
+        vz_gt = y[:, 1:, :] - y[:, :-1, :]
+        sign_change = tf.cast(vz_gt[:, :-1, :] * vz_gt[:, 1:, :] < 0, tf.float32)
+        bounce_loss = tf.reduce_mean(sign_change * tf.square(vz_pred[:, :-1, :] - vz_gt[:, :-1, :]))
+
+        # total test loss
+        total_loss = loss + lambda_bounce * bounce_loss
+
+        test_loss += total_loss.numpy() * x.shape[0]
         test_samples += x.shape[0]
     
     if test_samples > 0:
