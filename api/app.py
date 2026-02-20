@@ -16,15 +16,15 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 
-import tensorflow as tf
+import tensorflow as tf # deep learning
 import mediapipe as mp # keypoint extraction (pose)
 import cv2 as cv # video handling and utils
 from ultralytics import YOLO # object detection
 import numpy as np # mathematical operations and arrays
 from src.shot_classification.model import Attention, SequenceAttention, ShotClassifier # subclassed models and layers
 from src.shot_classification.neutral_model import NeutralIdentifier, Attention # subclassed models and layers
-import supabase
-import os
+import supabase # metadata?
+import os # path handling
 from werkzeug.utils import secure_filename # for security checks
 import boto3 # cloudflare r2 client
 from botocore.exceptions import NoCredentialsError # exceptions
@@ -33,7 +33,8 @@ import datetime
 from botocore.exceptions import ClientError # more exceptions
 import subprocess # running commands like ffmpeg
 import time # fake stub delay
-import gc
+import gc # garbage collection
+from scipy.signal import savgol_filter # savitzky-golay filter
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -210,6 +211,9 @@ async def main(request: Request, video: UploadFile = File(...)):
         trail = [] # stores ball trail
         MAX_TRAIL_LENGTH = 40
         coordinates = [] # stores ball locations
+        ball_history = [] # for savitzky–golay filter
+        BALL_SMOOTH_WINDOW = 5
+        BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
         
         n_shots = 0 # stores total shots
         shot_occurences = { # amount of occurences of each shot
@@ -551,9 +555,29 @@ async def main(request: Request, video: UploadFile = File(...)):
                     speed_buffer.append(moving_ball)
 
             if moving_ball:
-                cx, cy = moving_ball
-                last_ball_px = (cx, cy)
+                # use savitzky-golay
+                cx, cy = None, None
+                ball_history.append(moving_ball)
 
+                if len(ball_history) > BALL_SMOOTH_WINDOW:
+                    ball_history.pop(0) # sliding window
+
+                # smooth if enough points are present
+                if len(ball_history) >= BALL_SMOOTH_WINDOW:
+                    # seperate x and y
+                    xs = [p[0] for p in ball_history]
+                    ys = [p[1] for p in ball_history]
+
+                    # apply filter
+                    smooth_xs = savgol_filter(xs, BALL_SMOOTH_WINDOW, BALL_POLY_ORDER)
+                    smooth_ys = savgol_filter(ys, BALL_SMOOTH_WINDOW, BALL_POLY_ORDER)
+
+                    # take the last smoothed point as the current position
+                    cx, cy = int(smooth_xs[-1]), int(smooth_ys[-1])
+                else:
+                    cx, cy = moving_ball
+
+                last_ball_px = (cx, cy)
                 trail.append((cx, cy))
                 if len(trail) > MAX_TRAIL_LENGTH:
                     trail.pop(0)
