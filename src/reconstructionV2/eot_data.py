@@ -4,7 +4,7 @@
 import numpy as np
 import os
 
-os.makedirs("src/reconstructionV2/synthetic_data", exist_ok=True)
+os.makedirs("synthetic_data", exist_ok=True)
 
 # define constants
 COURT_LENGTH = 23.77 # standard court dimensions
@@ -19,14 +19,14 @@ G = 9.81 # gravity constant
 
 # typical groundstroke, medium contact, medium speed, wide arc
 contact_height_range = (0.8, 1.5)
-forward_velocity_range = (22, 35)
-vertical_velocity_range = (3, 7)
+forward_velocity_range = (20, 39)
+vertical_velocity_range = (2, 6)
 resitution = 0.8
 
 # serves, higher contact, higher speed, reduced arc
 contact_height_range_serve = (2.2, 2.8)
 forward_velocity_range_serve = (40, 60)
-vertical_velocity_range_serve = (2, 6)
+vertical_velocity_range_serve = (1, 5)
 resitution_serve = 0.95
 
 # lob, smaller range for contact, low speed, high arc
@@ -36,7 +36,6 @@ vertical_velocity_range_lob = (10, 18)
 resitution_lob = 0.7
 
 def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7):
-
     x0, y0, z0 = initial_position
     v_x, v_y, v_z = initial_velocities
 
@@ -45,58 +44,73 @@ def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restit
     b = v_z
     c = z0
 
-    disc = b**2 - 4*a*c # get discriminant
+    disc = b**2 - 4*a*c
     if disc < 0:
         return None
 
-    root_1 = (-b + np.sqrt(disc)) / (2*a)
-    root_2 = (-b - np.sqrt(disc)) / (2*a)
-    t_land1 = max(root_1, root_2)
+    t_land1 = max((-b + np.sqrt(disc)) / (2*a),
+                  (-b - np.sqrt(disc)) / (2*a))
+    if t_land1 <= 0:
+        return None
 
-    # positions during first flight
-    times1 = np.linspace(0, t_land1, seq_len // 2)
-    x1 = x0 + v_x * times1
-    y1 = y0 + v_y * times1
-    z1 = z0 + v_z * times1 - 0.5 * G * times1**2
-    z1 = np.maximum(z1, 0)
+    # velocity right before bounce
+    v_impact = v_z - G * t_land1
 
-    # velocity after first bounce
-    v_z2 = -v_z * restitution
-    v_x2 = v_x * 0.95  # small horizontal loss
-    v_y2 = v_y * 0.95
-    x0_2, y0_2, z0_2 = x1[-1], y1[-1], 0  # start at first bounce
+    # bounce physics
+    v_z2 = -restitution * v_impact
+
+    # horizontal damping
+    v_x2 = v_x * 0.95
+    v_y2 = v_y * 0.93
+
+    # bounce position
+    x_bounce = x0 + v_x * t_land1
+    y_bounce = y0 + v_y * t_land1
+    z_bounce = 0.0
 
     # second flight
     a2 = -0.5 * G
     b2 = v_z2
-    c2 = z0_2
+    c2 = 0.0
 
     disc2 = b2**2 - 4*a2*c2
     if disc2 < 0:
-        return None # impossible
+        return None
 
-    # get roots
-    root_1b = (-b2 + np.sqrt(disc2)) / (2*a2)
-    root_2b = (-b2 - np.sqrt(disc2)) / (2*a2)
-    t_land2 = max(root_1b, root_2b)
+    t_land2 = max((-b2 + np.sqrt(disc2)) / (2*a2),
+                  (-b2 - np.sqrt(disc2)) / (2*a2))
+    if t_land2 <= 0:
+        return None
 
-    times2 = np.linspace(0, t_land2, seq_len - len(times1))
-    x2 = x0_2 + v_x2 * times2
-    y2 = y0_2 + v_y2 * times2
-    z2 = z0_2 + v_z2 * times2 - 0.5 * G * times2**2
-    z2 = np.maximum(z2, 0)
+    # stop halfway through second bounce
+    second_fraction = 0.5
+    t_cutoff = t_land1 + second_fraction * t_land2
 
-    # combine flights
-    x_t = np.concatenate([x1, x2])
-    y_t = np.concatenate([y1, y2])
-    z_t = np.concatenate([z1, z2])
+    # generate sequence
+    times = np.linspace(0, t_cutoff, seq_len)
+    x_vals, y_vals, z_vals = [], [], []
 
-    sequence = np.stack([x_t, y_t, z_t], axis=-1)
+    for t in times:
+        if t <= t_land1:
+            # first flight
+            x = x0 + v_x * t
+            y = y0 + v_y * t
+            z = z0 + v_z * t - 0.5 * G * t**2
+        else:
+            # partial second flight without extra acceleration
+            t2 = t - t_land1
+            x = x_bounce + v_x2 * t2
+            y = y_bounce + v_y2 * t2
+            z = v_z2 * t2 - 0.5 * G * t2**2
 
-    # final landing label (after second bounce)
-    x_land = x_t[-1]
-    y_land = y_t[-1]
-    label = np.array([x_land, y_land], dtype=np.float32)
+        x_vals.append(x)
+        y_vals.append(y)
+        z_vals.append(max(z, 0))
+
+    sequence = np.stack([x_vals, y_vals, z_vals], axis=-1)
+
+    # label = first bounce location
+    label = np.array([x_bounce, y_bounce], dtype=np.float32)
 
     return sequence.astype(np.float32), label
 

@@ -65,10 +65,16 @@ class EoTNetwork(tf.keras.Model):
         self.attn4 = Attention()
         self.bn4 = tf.keras.layers.BatchNormalization()
 
+        # lstm block 5
+        self.lstm5 = tf.keras.layers.LSTM(1024, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
+        self.attn5 = Attention()
+        self.bn5 = tf.keras.layers.BatchNormalization()
+
         # fully connected layers
         self.dense1 = tf.keras.layers.Dense(64, activation="gelu")
         self.dense2 = tf.keras.layers.Dense(128, activation="gelu")
-        self.out = tf.keras.layers.Dense(1, activation=None)
+        self.dense3 = tf.keras.layers.Dense(256, activation="gelu")
+        self.out = tf.keras.layers.Dense(2, activation=None)
 
     def call(self, x):
         x = self.lstm1(x)
@@ -87,6 +93,11 @@ class EoTNetwork(tf.keras.Model):
         x = self.attn4(x)
         x = self.bn4(x)
 
+        x = self.lstm5(x)
+        x = self.attn5(x)
+        x = self.bn5(x)
+
         x = self.dense1(x)
         x = self.dense2(x)
+        x = self.dense3(x)
         return self.out(x)

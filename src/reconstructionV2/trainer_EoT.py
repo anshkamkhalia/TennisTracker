@@ -7,8 +7,8 @@ import numpy as np
 # hyperparams
 seq_len = 60
 batch_size = 64
-epochs = 50
-learning_rate = 1e-3
+epochs = 70
+learning_rate = 3e-4
 data_dir = "src/reconstructionV2/synthetic_data"
 strokes = ["groundstroke", "serve", "lob"]
 num_batches_per_type = 30
