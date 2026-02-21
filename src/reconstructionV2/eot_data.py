@@ -35,7 +35,7 @@ forward_velocity_range_lob = (12, 20)
 vertical_velocity_range_lob = (10, 18)
 resitution_lob = 0.7
 
-def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7):
+def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.005, drop_prob=0.25):
     x0, y0, z0 = initial_position
     v_x, v_y, v_z = initial_velocities
 
@@ -92,22 +92,40 @@ def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restit
 
     for t in times:
         if t <= t_land1:
-            # first flight
             x = x0 + v_x * t
             y = y0 + v_y * t
             z = z0 + v_z * t - 0.5 * G * t**2
         else:
-            # partial second flight without extra acceleration
             t2 = t - t_land1
             x = x_bounce + v_x2 * t2
             y = y_bounce + v_y2 * t2
             z = v_z2 * t2 - 0.5 * G * t2**2
 
+        # add small jitter
+        x += np.random.normal(0, jitter_std)
+        y += np.random.normal(0, jitter_std)
+        z += np.random.normal(0, jitter_std)
+
+        # randomly drop some points (set to np.nan)
+        if np.random.rand() < drop_prob:
+            x, y, z = np.nan, np.nan, np.nan
+
         x_vals.append(x)
         y_vals.append(y)
         z_vals.append(max(z, 0))
 
+    # convert to array
     sequence = np.stack([x_vals, y_vals, z_vals], axis=-1)
+
+    # interpolate dropped points to keep seq_len exact
+    for dim in range(3):
+        arr = sequence[:, dim]
+        nans = np.isnan(arr)
+        if np.any(nans):
+            # linear interpolation for missing points
+            not_nans = ~nans
+            arr[nans] = np.interp(np.flatnonzero(nans), np.flatnonzero(not_nans), arr[not_nans])
+            sequence[:, dim] = arr
 
     # label = first bounce location
     label = np.array([x_bounce, y_bounce], dtype=np.float32)

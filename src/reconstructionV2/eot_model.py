@@ -111,9 +111,9 @@ class EoTNetwork(tf.keras.Model):
         self.bn5 = tf.keras.layers.BatchNormalization()
 
         # fully connected layers
-        self.dense1 = tf.keras.layers.Dense(64, activation="gelu")
-        self.dense2 = tf.keras.layers.Dense(128, activation="gelu")
-        self.dense3 = tf.keras.layers.Dense(256, activation="gelu")
+        self.dense1 = tf.keras.layers.Dense(128, activation="gelu")
+        self.dense2 = tf.keras.layers.Dense(256, activation="gelu")
+        self.dense3 = tf.keras.layers.Dense(512, activation="gelu")
         self.out = tf.keras.layers.Dense(2, activation=None)
 
     def call(self, x):
