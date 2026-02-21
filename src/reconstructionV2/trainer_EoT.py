@@ -11,7 +11,7 @@ epochs = 50
 learning_rate = 1e-3
 data_dir = "src/reconstructionV2/synthetic_data"
 strokes = ["groundstroke", "serve", "lob"]
-num_batches_per_type = 20
+num_batches_per_type = 30
 validation_split = 0.1
 
 def load_all_batches(data_dir=data_dir, strokes=strokes, num_batches=num_batches_per_type):

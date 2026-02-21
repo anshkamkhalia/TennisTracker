@@ -152,7 +152,7 @@ def generate_dataset(num_samples, stroke_type="groundstroke", seq_len=60):
 
     return sequences, labels
 
-def generate_mixed_dataset_save_batches(total_samples_per_type=200_000, seq_len=60, batch_size=10_000, save_dir="src/reconstructionV2/synthetic_data"):
+def generate_mixed_dataset_save_batches(total_samples_per_type=300_000, seq_len=60, batch_size=10_000, save_dir="src/reconstructionV2/synthetic_data"):
     
     for stroke in ["groundstroke", "serve", "lob"]:
         num_batches = total_samples_per_type // batch_size

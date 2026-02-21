@@ -46,22 +46,22 @@ class EoTNetwork(tf.keras.Model):
         super().__init__(**kwargs)
         
         # lstm block 1
-        self.lstm1 = tf.keras.layers.LSTM(32, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
+        self.lstm1 = tf.keras.layers.LSTM(64, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
         self.attn1 = Attention()
         self.bn1 = tf.keras.layers.BatchNormalization() 
 
         # lstm block 2
-        self.lstm2 = tf.keras.layers.LSTM(64, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
+        self.lstm2 = tf.keras.layers.LSTM(128, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
         self.attn2 = Attention()
         self.bn2 = tf.keras.layers.BatchNormalization()
 
         # lstm block 3
-        self.lstm3 = tf.keras.layers.LSTM(128, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
+        self.lstm3 = tf.keras.layers.LSTM(256, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
         self.attn3 = Attention()
         self.bn3 = tf.keras.layers.BatchNormalization()
 
         # lstm block 4
-        self.lstm4 = tf.keras.layers.LSTM(256, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
+        self.lstm4 = tf.keras.layers.LSTM(512, activation="tanh", kernel_regularizer=tf.keras.regularizers.l2(1e-4), recurrent_regularizer=tf.keras.regularizers.l2(1e-4), return_sequences=True)
         self.attn4 = Attention()
         self.bn4 = tf.keras.layers.BatchNormalization()
 
