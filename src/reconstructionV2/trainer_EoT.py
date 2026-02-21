@@ -64,7 +64,7 @@ model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
 # callbacks
 callbacks = [
     tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-    tf.keras.callbacks.ModelCheckpoint('eot_model_best.keras', monitor='val_loss', save_best_only=True)
+    tf.keras.callbacks.ModelCheckpoint('serialized_models/eot_model_best.keras', monitor='val_loss', save_best_only=True)
 ]
 
 model.fit(
