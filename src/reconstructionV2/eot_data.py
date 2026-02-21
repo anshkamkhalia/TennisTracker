@@ -35,7 +35,7 @@ forward_velocity_range_lob = (12, 20)
 vertical_velocity_range_lob = (10, 18)
 resitution_lob = 0.7
 
-def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.005, drop_prob=0.25):
+def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.0025, drop_prob=0.15):
     x0, y0, z0 = initial_position
     v_x, v_y, v_z = initial_velocities
 
