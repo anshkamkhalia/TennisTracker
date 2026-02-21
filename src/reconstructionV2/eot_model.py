@@ -46,7 +46,7 @@ class EoTNetwork(tf.keras.Model):
         super().__init__(**kwargs)
         
         # lstm block 1
-        self.lstm1 = tf.keras.layers.BiDirectional(
+        self.lstm1 = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(
                 64, 
                 activation="tanh", 
@@ -59,7 +59,7 @@ class EoTNetwork(tf.keras.Model):
         self.bn1 = tf.keras.layers.BatchNormalization() 
 
         # lstm block 2
-        self.lstm2 = tf.keras.layers.BiDirectional(
+        self.lstm2 = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(
                 128, 
                 activation="tanh", 
@@ -72,7 +72,7 @@ class EoTNetwork(tf.keras.Model):
         self.bn2 = tf.keras.layers.BatchNormalization()
 
         # lstm block 3
-        self.lstm3 = tf.keras.layers.BiDirectional(
+        self.lstm3 = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(
                 256, 
                 activation="tanh", 
@@ -85,7 +85,7 @@ class EoTNetwork(tf.keras.Model):
         self.bn3 = tf.keras.layers.BatchNormalization()
 
         # lstm block 4
-        self.lstm4 = tf.keras.layers.BiDirectional(
+        self.lstm4 = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(
                 512, 
                 activation="tanh", 
@@ -98,7 +98,7 @@ class EoTNetwork(tf.keras.Model):
         self.bn4 = tf.keras.layers.BatchNormalization()
 
         # lstm block 5
-        self.lstm5 = tf.keras.layers.BiDirectional(
+        self.lstm5 = tf.keras.layers.Bidirectional(
             tf.keras.layers.LSTM(
                 1024, 
                 activation="tanh", 
