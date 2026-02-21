@@ -2,6 +2,9 @@
 # will be used to train an EoT network (end of trajectory)
 
 import numpy as np
+import os
+
+os.makedirs("src/reconstructionV2/synthetic_data", exist_ok=True)
 
 # define constants
 COURT_LENGTH = 23.77 # standard court dimensions
