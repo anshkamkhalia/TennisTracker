@@ -8,28 +8,36 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 # hyperparams
-seq_len = 60
+seq_len = 120
 batch_size = 64
 epochs = 70
 learning_rate = 3e-4
-data_dir = "src/reconstructionV2/synthetic_data"
-strokes = ["groundstroke", "serve", "lob"]
-num_batches_per_type = 15
+data_dir = "src/reconstructionV2/synthetic_eot_data"
 validation_split = 0.1
 os.makedirs("src/reconstructionV2/graph_checkpoints", exist_ok=True)
 
-def load_all_batches(data_dir=data_dir, strokes=strokes, num_batches=num_batches_per_type):
+def load_all_batches(data_dir=data_dir):
 
     x_list, y_list = [], []
 
-    for stroke in strokes:
-        for b in range(1, num_batches + 1):
-            x_path = f"{data_dir}/X_train_batch_{b}.npy"
-            y_path = f"{data_dir}/y_train_batch_{b}.npy"
-            x = np.load(x_path)
-            y = np.load(y_path)
-            x_list.append(x)
-            y_list.append(y)
+    # automatically detect how many batches exist
+    batch_files = sorted([
+        f for f in os.listdir(data_dir)
+        if f.startswith("x_batch_")
+    ])
+
+    for x_file in batch_files:
+        batch_num = x_file.split("_")[-1].split(".")[0]
+        y_file = f"y_batch_{batch_num}.npy"
+
+        x_path = os.path.join(data_dir, x_file)
+        y_path = os.path.join(data_dir, y_file)
+
+        x = np.load(x_path)
+        y = np.load(y_path)
+
+        x_list.append(x)
+        y_list.append(y)
 
     x_all = np.concatenate(x_list, axis=0)
     y_all = np.concatenate(y_list, axis=0)
@@ -54,7 +62,7 @@ y_train = y_all[val_size:]
 
 # convert to tf.data.Dataset for speed
 train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+train_dataset = train_dataset.shuffle(buffer_size=16384).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 val_dataset = tf.data.Dataset.from_tensor_slices((x_val, y_val))
 val_dataset = val_dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
@@ -134,8 +142,6 @@ for epoch in range(epochs):
     
     val_loss /= val_samples # true sample weighted average over epoch
     
-    val_losses.append(val_loss)
-
     # model checkpointing + early stopping
     if val_loss <= best_val_loss:
         print(f"saving new best model with loss: {val_loss}")
