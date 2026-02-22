@@ -67,7 +67,8 @@ loss_fn = tf.keras.losses.MeanSquaredError() # mse for loss
 # for visualization
 train_losses = []
 val_losses = []
-epochs_completed = []
+batch_count = 0  # global batch counter
+batch_indices = []  # x-axis for batch-wise plot
 
 # callbacks
 best_val_loss = float('inf')
@@ -102,6 +103,8 @@ for epoch in range(epochs):
     for x, y in pbar:
         loss = float(train_step(x, y).numpy())
         train_losses.append(loss)
+        batch_indices.append(batch_count)
+        batch_count += 1
         batch_size_curr = int(x.shape[0])
         train_loss += loss * batch_size_curr
         train_samples += batch_size_curr
@@ -146,16 +149,14 @@ for epoch in range(epochs):
         print("model stopping improving, ending training")
         break
 
-    epochs_completed.append(epoch+1)
-
     # save graphs   
-    fig, ax = plt.subplots()
-    ax.plot(epochs_completed, train_losses, label="train loss")
-    ax.plot(epochs_completed, val_losses, label="val loss")
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("MSE loss")
-    ax.set_title("Training vs Validation Loss")
+    fig, ax = plt.subplots(figsize=(12,8))
+    ax.plot(batch_indices, train_losses, label="train loss", alpha=0.7)
+    ax.plot(batch_indices[:len(val_losses)], val_losses, label="val loss", alpha=0.7)
+    ax.set_xlabel("Batch #")
+    ax.set_ylabel("MSE Loss")
+    ax.set_title("Training vs Validation Loss (batch-wise)")
     ax.legend()
     fig.tight_layout()
-    fig.savefig(os.path.join(graph_dir, "loss_curve.png"))
+    fig.savefig(os.path.join(graph_dir, "loss_curve_batchwise.png"))
     plt.close(fig)
