@@ -32,7 +32,6 @@ restitution_range = (0.6, 0.95)
 friction_range = (0.95, 0.995)
 noise_std = 0.01
 
-
 def simulate_trajectory(_=None):
     # random initial position
     x = np.random.uniform(0, space_x)
@@ -89,7 +88,6 @@ def simulate_trajectory(_=None):
 
     return np.array(traj), bounces
 
-
 def extract_windows(traj, bounces, window_size=window_size):
     n_windows = max(len(traj) - window_size, 0)
     if n_windows == 0 or len(bounces) == 0:
@@ -117,7 +115,6 @@ def extract_windows(traj, bounces, window_size=window_size):
     valid = np.any(x_windows != 0, axis=(1, 2))
     return x_windows[valid], y_labels[valid]
 
-
 def normalize(x_data, y_data):
     x_data[:, :, 0] /= space_x
     x_data[:, :, 1] /= space_y
@@ -125,30 +122,32 @@ def normalize(x_data, y_data):
     y_data[:, 1] /= space_y
     return x_data.astype(np.float32), y_data.astype(np.float32)
 
-
 def generate_dataset(target_windows):
-    x_all = []
-    y_all = []
+    x_list = []
+    y_list = []
 
     pool_size = mp.cpu_count()
     with mp.Pool(pool_size) as pool:
-        while len(x_all) < target_windows:
+        while True:
             # generate many trajectories at once
             results = pool.map(simulate_trajectory, [None]*pool_size)
             for traj, bounces in results:
                 x_win, y_lab = extract_windows(traj, bounces)
                 if len(x_win) == 0:
                     continue
-                x_all.append(x_win)
-                y_all.append(y_lab)
-            x_all = np.concatenate(x_all, axis=0)
-            y_all = np.concatenate(y_all, axis=0)
+                x_list.append(x_win)
+                y_list.append(y_lab)
 
-    # trim to exact target size
-    x_all = x_all[:target_windows]
-    y_all = y_all[:target_windows]
+            # check if we have enough windows
+            total_windows_collected = sum(x.shape[0] for x in x_list)
+            if total_windows_collected >= target_windows:
+                break
+
+    # concatenate all windows
+    x_all = np.concatenate(x_list, axis=0)[:target_windows]
+    y_all = np.concatenate(y_list, axis=0)[:target_windows]
+
     return normalize(x_all, y_all)
-
 
 def generate_and_save_batches(total_windows=200_000, batch_size=10_000):
     num_batches = total_windows // batch_size
@@ -158,7 +157,6 @@ def generate_and_save_batches(total_windows=200_000, batch_size=10_000):
         np.save(f"{save_dir}/y_batch_{b+1}.npy", y_batch)
         print(f"saved batch {b+1}/{num_batches}")
     print("all batches saved.")
-
 
 if __name__ == "__main__":
     generate_and_save_batches()
