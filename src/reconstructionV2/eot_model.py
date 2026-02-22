@@ -56,7 +56,6 @@ class EoTNetwork(tf.keras.Model):
                 return_sequences=True
                 )
         )
-        self.gap1 = tf.keras.layers.GlobalAveragePooling2D()
         self.bn1 = tf.keras.layers.BatchNormalization() 
 
         # lstm block 2
@@ -66,10 +65,9 @@ class EoTNetwork(tf.keras.Model):
                 activation="tanh", 
                 kernel_regularizer=tf.keras.regularizers.l2(1e-4), 
                 recurrent_regularizer=tf.keras.regularizers.l2(1e-4), 
-                return_sequences=True
+                return_sequences=False # flatten for dense
                 )
         )
-        self.gap2 = tf.keras.layers.GlobalAveragePooling2D()
         self.bn2 = tf.keras.layers.BatchNormalization()
 
         # fully connected layers
@@ -78,22 +76,11 @@ class EoTNetwork(tf.keras.Model):
         self.out = tf.keras.layers.Dense(2, activation=None)
 
     def call(self, x):
-        # normalize inputs during inference
-        x_vals = x[:, 0] # get x
-        y_vals = x[:, 1] # get y
-
-        x_max = tf.reduce_max(x_vals)
-        x[:, 0] = x_vals / x_max # normalize x values
-
-        y_max = tf.reduce_max(y_vals)
-        x[:, 1] = y_vals / y_max # normalize y values
 
         x = self.lstm1(x)
-        x = self.gap1(x)
         x = self.bn1(x)
 
         x = self.lstm2(x)
-        x = self.gap2(x)
         x = self.bn2(x)
 
         x = self.dense1(x)

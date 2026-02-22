@@ -3,6 +3,9 @@
 import tensorflow as tf
 from eot_model import EoTNetwork
 import numpy as np
+import os
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # hyperparams
 seq_len = 60
@@ -13,6 +16,7 @@ data_dir = "src/reconstructionV2/synthetic_data"
 strokes = ["groundstroke", "serve", "lob"]
 num_batches_per_type = 15
 validation_split = 0.1
+os.makedirs("src/reconstructionV2/graph_checkpoints", exist_ok=True)
 
 def load_all_batches(data_dir=data_dir, strokes=strokes, num_batches=num_batches_per_type):
 
@@ -57,19 +61,101 @@ val_dataset = val_dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 # create model
 model = EoTNetwork()
-model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-              loss='mse',
-              metrics=['mae'])
+optimizer = tf.keras.optimizers.Adam(learning_rate) # adam optimizer
+loss_fn = tf.keras.losses.MeanSquaredError() # mse for loss
+
+# for visualization
+train_losses = []
+val_losses = []
+epochs_completed = []
 
 # callbacks
-callbacks = [
-    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-    tf.keras.callbacks.ModelCheckpoint("/content/drive/MyDrive/colab_checkpoints/best_model.keras", monitor='val_loss', save_best_only=True)
-]
+best_val_loss = float('inf')
+no_improve_count = 0
+# save_dir = "/content/drive/MyDrive/colab_checkpoints"
+save_dir = "src/reconstructionV2"
+graph_dir = "src/reconstructionV2/graph_checkpoints"
+patience = 15
 
-model.fit(
-    train_dataset,
-    validation_data=val_dataset,
-    epochs=epochs,
-    callbacks=callbacks,
-)
+@tf.function
+def train_step(x, y):
+    with tf.GradientTape() as tape:
+        preds = model(x, training=True)
+        loss = loss_fn(y_true=y, y_pred=preds)
+
+    grads = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+    return loss
+
+@tf.function
+def val_step(x, y):
+    preds = model(x, training=False)
+    return loss_fn(y_true=y, y_pred=preds)
+
+for epoch in range(epochs):
+    print(f"epoch {epoch+1}\n")
+
+    # gradient descent
+    train_loss = 0.0
+    train_samples = 0
+    pbar = tqdm(train_dataset, desc=f"training {epoch+1}/{epochs}", leave=False)
+    for x, y in pbar:
+        loss = float(train_step(x, y).numpy())
+        batch_size_curr = int(x.shape[0])
+        train_loss += loss * batch_size_curr
+        train_samples += batch_size_curr
+        pbar.set_postfix(loss=f"{train_loss / train_samples:.6f}")
+    
+    if train_samples == 0:
+        print("skipping")
+        continue # not enough samples
+    
+    train_loss /= train_samples # true sample-weighted average
+    
+    train_losses.append(train_loss)
+
+    # evaluate
+    val_loss = 0.0
+    val_samples = 0
+    val_pbar = tqdm(val_dataset, desc=f"validation {epoch+1}/{epochs}", leave=False)
+    for x, y in val_pbar:
+        loss = float(val_step(x, y).numpy())
+        batch_size_curr = int(x.shape[0])
+        val_loss += loss * batch_size_curr
+        val_samples += batch_size_curr
+        val_pbar.set_postfix(loss=f"{val_loss / val_samples:.6f}")
+    
+    if val_samples == 0:
+        print("skipping")
+        continue
+    
+    val_loss /= val_samples # true sample weighted average over epoch
+    
+    val_losses.append(val_loss)
+
+    # model checkpointing + early stopping
+    if val_loss <= best_val_loss:
+        print(f"saving new best model with loss: {val_loss}")
+        model.save(os.path.join(save_dir, "eot_best.keras")) # save model
+        best_val_loss = val_loss # update loss
+        no_improve_count = 0
+    else:
+        no_improve_count += 1
+    
+    if no_improve_count > patience:
+        print("model stopping improving, ending training")
+        break
+
+    epochs_completed.append(epoch+1)
+
+    # save graphs   
+    fig, ax = plt.subplots()
+    ax.plot(epochs_completed, train_losses, label="train loss")
+    ax.plot(epochs_completed, val_losses, label="val loss")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("MSE loss")
+    ax.set_title("Training vs Validation Loss")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(graph_dir, "loss_curve.png"))
+    plt.close(fig)

@@ -9,6 +9,7 @@ os.makedirs("synthetic_data", exist_ok=True)
 # define constants
 COURT_LENGTH = 23.77 # standard court dimensions
 COURT_WIDTH = 8.23
+MAX_HEIGHT = 18.0  # safe upper bound for lob arcs
 G = 9.81 # gravity constant
 
 # x -> side to side (alley to alley)
@@ -177,6 +178,20 @@ def generate_dataset(num_samples, stroke_type="groundstroke", seq_len=60):
     # convert to numpy arrays
     sequences = np.array(sequences)  # shape (num_samples, seq_len, 3)
     labels = np.array(labels)        # shape (num_samples, 2)
+
+    # normalize sequences to 0–1 range
+    # x dimension
+    sequences[:, :, 0] = sequences[:, :, 0] / COURT_WIDTH
+
+    # y dimension
+    sequences[:, :, 1] = sequences[:, :, 1] / COURT_LENGTH
+
+    # z dimension
+    sequences[:, :, 2] = sequences[:, :, 2] / MAX_HEIGHT
+
+    # normalize labels (bounce locations)
+    labels[:, 0] = labels[:, 0] / COURT_WIDTH
+    labels[:, 1] = labels[:, 1] / COURT_LENGTH
 
     return sequences, labels
 
