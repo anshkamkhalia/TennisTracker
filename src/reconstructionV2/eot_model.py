@@ -55,7 +55,7 @@ class EoTNetwork(tf.keras.Model):
                 return_sequences=True
                 )
         )
-        self.gap1 = tf.keras.layers.GlobalAveragePooling2D(pool_size=(2, 2), data_format='channels_last')
+        self.gap1 = tf.keras.layers.GlobalAveragePooling2D()
         self.bn1 = tf.keras.layers.BatchNormalization() 
 
         # lstm block 2
@@ -68,7 +68,7 @@ class EoTNetwork(tf.keras.Model):
                 return_sequences=True
                 )
         )
-        self.gap2 = tf.keras.layers.GlobalAveragePooling2D(pool_size=(2, 2), data_format='channels_last')
+        self.gap2 = tf.keras.layers.GlobalAveragePooling2D()
         self.bn2 = tf.keras.layers.BatchNormalization()
 
         # fully connected layers
