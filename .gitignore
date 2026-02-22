@@ -12,3 +12,4 @@ src/court_model/yolov11-tennis-court-data
 src/ball_tracking/ball_tracking_data/Dataset
 unity_visualizer/
 src/reconstructionV2/synthetic_data
+serialized_models/reconstructor.keras
