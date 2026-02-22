@@ -101,6 +101,7 @@ for epoch in range(epochs):
     pbar = tqdm(train_dataset, desc=f"training {epoch+1}/{epochs}", leave=False)
     for x, y in pbar:
         loss = float(train_step(x, y).numpy())
+        train_losses.append(loss)
         batch_size_curr = int(x.shape[0])
         train_loss += loss * batch_size_curr
         train_samples += batch_size_curr
@@ -111,8 +112,6 @@ for epoch in range(epochs):
         continue # not enough samples
     
     train_loss /= train_samples # true sample-weighted average
-    
-    train_losses.append(train_loss)
 
     # evaluate
     val_loss = 0.0
@@ -120,6 +119,7 @@ for epoch in range(epochs):
     val_pbar = tqdm(val_dataset, desc=f"validation {epoch+1}/{epochs}", leave=False)
     for x, y in val_pbar:
         loss = float(val_step(x, y).numpy())
+        val_losses.append(loss)
         batch_size_curr = int(x.shape[0])
         val_loss += loss * batch_size_curr
         val_samples += batch_size_curr
