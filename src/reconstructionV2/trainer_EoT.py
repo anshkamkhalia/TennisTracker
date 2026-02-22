@@ -72,8 +72,8 @@ epochs_completed = []
 # callbacks
 best_val_loss = float('inf')
 no_improve_count = 0
-# save_dir = "/content/drive/MyDrive/colab_checkpoints"
-save_dir = "src/reconstructionV2"
+save_dir = "/content/drive/MyDrive/colab_checkpoints"
+# save_dir = "src/reconstructionV2"
 graph_dir = "src/reconstructionV2/graph_checkpoints"
 patience = 15
 
