@@ -82,10 +82,10 @@ class EoTNetwork(tf.keras.Model):
         x_vals = x[:, 0] # get x
         y_vals = x[:, 1] # get y
 
-        x_max = max(x_vals)
+        x_max = tf.reduce_max(x_vals)
         x[:, 0] = x_vals / x_max # normalize x values
 
-        y_max = max(y_vals)
+        y_max = tf.reduce_max(y_vals)
         x[:, 1] = y_vals / y_max # normalize y values
 
         x = self.lstm1(x)
