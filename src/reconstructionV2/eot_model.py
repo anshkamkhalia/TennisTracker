@@ -1,6 +1,7 @@
 # lstm + attention
 
 import tensorflow as tf
+import numpy as np
 
 @tf.keras.utils.register_keras_serializable(package="custom_layer")
 class Attention(tf.keras.layers.Layer):
@@ -81,10 +82,10 @@ class EoTNetwork(tf.keras.Model):
         x_vals = x[:, 0] # get x
         y_vals = x[:, 1] # get y
 
-        x_max = tf.maximum(x_vals)
+        x_max = max(x_vals)
         x[:, 0] = x_vals / x_max # normalize x values
 
-        y_max = tf.maximum(y_vals)
+        y_max = max(y_vals)
         x[:, 1] = y_vals / y_max # normalize y values
 
         x = self.lstm1(x)
