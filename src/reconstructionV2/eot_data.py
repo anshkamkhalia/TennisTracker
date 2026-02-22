@@ -35,7 +35,7 @@ forward_velocity_range_lob = (12, 20)
 vertical_velocity_range_lob = (10, 18)
 resitution_lob = 0.7
 
-def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.0025, drop_prob=0.15):
+def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.001):
     x0, y0, z0 = initial_position
     v_x, v_y, v_z = initial_velocities
 
@@ -105,10 +105,6 @@ def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restit
         x += np.random.normal(0, jitter_std)
         y += np.random.normal(0, jitter_std)
         z += np.random.normal(0, jitter_std)
-
-        # randomly drop some points (set to np.nan)
-        if np.random.rand() < drop_prob:
-            x, y, z = np.nan, np.nan, np.nan
 
         x_vals.append(x)
         y_vals.append(y)
