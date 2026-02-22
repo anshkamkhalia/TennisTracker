@@ -35,7 +35,7 @@ forward_velocity_range_lob = (12, 20)
 vertical_velocity_range_lob = (10, 18)
 resitution_lob = 0.7
 
-def simulate_trajectory(initial_position, initial_velocities, seq_len=60, restitution=0.7, jitter_std=0.001):
+def simulate_trajectory(initial_position, initial_velocities, seq_len=120, restitution=0.7, jitter_std=0.001):
     x0, y0, z0 = initial_position
     v_x, v_y, v_z = initial_velocities
 
@@ -180,7 +180,7 @@ def generate_dataset(num_samples, stroke_type="groundstroke", seq_len=60):
 
     return sequences, labels
 
-def generate_mixed_dataset_save_batches(total_samples_per_type=300_000, seq_len=60, batch_size=10_000, save_dir="src/reconstructionV2/synthetic_data"):
+def generate_mixed_dataset_save_batches(total_samples_per_type=150_000, seq_len=120, batch_size=10_000, save_dir="src/reconstructionV2/synthetic_data"):
     
     for stroke in ["groundstroke", "serve", "lob"]:
         num_batches = total_samples_per_type // batch_size
