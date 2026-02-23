@@ -23,8 +23,7 @@ friction_range = (0.96, 0.995)
 
 noise_std = 0.01
 window_size = 120
-# save_dir = "/content/drive/MyDrive/colab_checkpoints"
-save_dir = "src/reconstructionV2/"
+save_dir = "src/reconstructionV2/synthetic_eot_data"
 os.makedirs(save_dir, exist_ok=True)
 
 def simulate_trajectory(_=None):
