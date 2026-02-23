@@ -1,92 +1,94 @@
-# synthetic eot dataset generator
-# generates full trajectories with multiple bounces
-# saves batches to disk with normalization
-# uses multiprocessing for speed
+# optimized data creation
 
 import numpy as np
 import os
 import multiprocessing as mp
 
-# constants for simulation
-g = 9.81  # gravity
-dt = 1/60  # simulation timestep (60 fps)
-window_size = 120  # sequence length for model
-total_time = 5.0  # simulate 5 seconds per trajectory
+# physics constants
+g = 9.81
+dt = 1/60
+total_time = 5.0
 
-# bounds for normalization
+# spatial bounds
 space_x = 50.0
 space_y = 50.0
 space_z = 10.0
 
-# directory to save batches
-save_dir = "src/reconstructionV2/synthetic_eot_data"
+# reduced velocity magnitudes to keep trajectories inside bounds
+vel_range_xy = (-8.0, 8.0)
+vel_range_z = (6.0, 15.0)
+
+restitution_range = (0.7, 0.9)
+friction_range = (0.96, 0.995)
+
+noise_std = 0.01
+window_size = 120
+# save_dir = "/content/drive/MyDrive/colab_checkpoints"
+save_dir = "src/reconstructionV2/"
 os.makedirs(save_dir, exist_ok=True)
 
-# number of trajectories per batch
-trajectories_per_batch = 20000
-
-# physics ranges
-vel_range_xy = (-20, 20)
-vel_range_z = (5, 25)
-restitution_range = (0.6, 0.95)
-friction_range = (0.95, 0.995)
-noise_std = 0.01
-
 def simulate_trajectory(_=None):
-    # random initial position
-    x = np.random.uniform(0, space_x)
-    y = np.random.uniform(0, space_y)
-    z = np.random.uniform(0.5, space_z/2)
 
-    # random velocities
+    # start safely inside bounds
+    x = np.random.uniform(5.0, space_x - 5.0)
+    y = np.random.uniform(5.0, space_y - 5.0)
+    z = np.random.uniform(0.5, space_z / 2.0)
+
     v_x = np.random.uniform(*vel_range_xy)
     v_y = np.random.uniform(*vel_range_xy)
     v_z = np.random.uniform(*vel_range_z)
 
-    # physical properties
     restitution = np.random.uniform(*restitution_range)
     friction = np.random.uniform(*friction_range)
 
     traj = []
     bounces = []
 
-    t = 0
+    t = 0.0
     while t < total_time:
+
         # update position
         x += v_x * dt
         y += v_y * dt
         z += v_z * dt
 
-        # gravity
+        # apply gravity
         v_z -= g * dt
 
-        # bounce
-        if z <= 0:
-            z = 0
+        # bounce condition
+        if z <= 0.0:
+            z = 0.0
             v_z = -restitution * v_z
-            v_x *= np.random.uniform(0.85, 0.98)
-            v_y *= np.random.uniform(0.85, 0.98)
+
+            # energy loss in horizontal motion
+            v_x *= np.random.uniform(0.9, 0.98)
+            v_y *= np.random.uniform(0.9, 0.98)
+
             bounces.append((len(traj), x, y))
 
-            # stop if vertical energy too low
+            # stop vertical motion if energy too low
             if abs(v_z) < 1.0:
-                v_z = 0
+                v_z = 0.0
 
-        # rolling
-        if z == 0 and v_z == 0:
+        # rolling friction after vertical motion stops
+        if z == 0.0 and v_z == 0.0:
             v_x *= friction
             v_y *= friction
             if np.sqrt(v_x**2 + v_y**2) < 0.1:
                 break
 
-        # observation noise
-        x_obs = x + np.random.normal(0, noise_std)
-        y_obs = y + np.random.normal(0, noise_std)
+        # keep ball inside court bounds
+        x = np.clip(x, 0.0, space_x)
+        y = np.clip(y, 0.0, space_y)
+
+        # add observation noise
+        x_obs = x + np.random.normal(0.0, noise_std)
+        y_obs = y + np.random.normal(0.0, noise_std)
 
         traj.append((x_obs, y_obs))
         t += dt
 
-    return np.array(traj), bounces
+    return np.array(traj, dtype=np.float32), bounces
 
 def extract_windows(traj, bounces, window_size=window_size):
     n_windows = max(len(traj) - window_size, 0)
