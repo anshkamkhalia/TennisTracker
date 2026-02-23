@@ -20,8 +20,8 @@
 </p>
 
 <p align="center">
-  <b>Analyze tennis videos with AI: shot classification, ball tracking, court overlays, and more.</b><br>
-  <i>For learners, hobbyists, coaches, and developers.</i>
+  <b>End-to-end tennis video analysis with computer vision and sequence models.</b><br>
+  <i>Current scope: backend inference pipeline is functional; reconstruction and frontend are still in progress.</i>
 </p>
 
 ---
@@ -34,6 +34,18 @@
 - 🏟️ **Court detection** and mini-court projection overlay
 - 📤 **End-to-end video processing** with annotated output
 - ☁️ **Cloudflare R2 upload** for processed videos
+
+---
+
+## 📌 Project Status
+
+| Area | Status | Notes |
+|---|---|---|
+| Backend video pipeline (`api/app.py`) | Active | Upload, inference, annotation, and storage flow are integrated |
+| Shot classification + neutral model | Active | Deployed in backend runtime |
+| Ball tracking + court overlay | Active | Running in current processing pipeline |
+| Reconstruction v2 (`src/reconstructionV2`) | In progress | EoT data/model/training scripts exist; not integrated into production API yet |
+| Frontend (`frontend/`) | In progress | Core auth/upload flows exist; polish and production UX still pending |
 
 ---
 
@@ -102,10 +114,10 @@ See `serialized_models/` and `src/` subfolders for scripts and outputs.
 
 ### Backend
 ```bash
-# 1. Create and activate a Python environment
-# 2. Install dependencies
+# 1) Create and activate a Python 3.10+ virtual environment
+# 2) Install dependencies
 pip install -r requirements.txt
-# 3. Start FastAPI server
+# 3) Start the FastAPI server
 uvicorn api.app:app --host 0.0.0.0 --port 5000
 ```
 
@@ -117,6 +129,7 @@ npx expo start
 ```
 
 The frontend calls the backend at `http://localhost:5000` (see `frontend/lib/api.ts`).
+`ffmpeg` must be installed and available in `PATH` for output video conversion.
 
 ---
 
@@ -219,12 +232,18 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 
 ## 🗺️ Roadmap
 
-- [ ] Shot scoring metrics: ball speed, depth, net clearance, outcome (in/out)
-- [ ] Frontend completion & polish
+- [ ] Integrate reconstruction v2 into the production pipeline
+- [ ] Validate reconstruction quality on real match footage (not just synthetic trajectories)
+- [ ] Finish frontend product flows (record/upload/progress/results/error handling)
+- [ ] Frontend UX polish and release hardening (device testing, loading states, edge-case handling)
+- [ ] Expand shot scoring metrics: depth, net clearance, and outcome (in/out)
 
 ---
 
-> **Note:** Frontend is not fully completed yet.
+## 🔭 Next Steps
+
+- **Reconstruction:** complete `src/reconstructionV2` validation, integrate inference into `api/app.py`, and expose reconstructed outputs in the API response contract.
+- **Frontend:** move from functional prototype to production-ready app with complete result views, clearer progress feedback, and better reliability across devices.
 
 ---
 
