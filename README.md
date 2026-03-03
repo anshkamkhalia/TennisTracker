@@ -245,11 +245,6 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 - **Reconstruction:** complete `src/reconstructionV2` validation, integrate inference into `api/app.py`, and expose reconstructed outputs in the API response contract.
 - **Frontend:** move from functional prototype to production-ready app with complete result views, clearer progress feedback, and better reliability across devices.
 
----
-
-## 👤 Author
-
-**Ansh**
 
 ---
 

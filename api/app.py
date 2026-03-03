@@ -27,6 +27,7 @@ import supabase # metadata?
 import os # path handling
 from werkzeug.utils import secure_filename # for security checks
 import boto3 # cloudflare r2 client
+from botocore.client import Config # version configs
 from botocore.exceptions import NoCredentialsError # exceptions
 from dotenv import load_dotenv # secure credential storage
 import datetime
@@ -51,6 +52,8 @@ s3 = boto3.client(
     endpoint_url=R2_ENDPOINT,
     aws_access_key_id=R2_KEY,
     aws_secret_access_key=R2_SECRET,
+    region_name="auto",
+    config=Config(signature_version="s3v4"),
 )
 
 # key mapping
@@ -839,21 +842,23 @@ async def main(request: Request, video: UploadFile = File(...)):
                 raise ValueError("output video corrupted")
             test_cap.release()
 
-            # upload to R2
-            s3_url = upload_to_r2(output_path, r2_key=r2_key)
-
             # cleanup temporary AVI
             if os.path.exists(avi_path):
                 os.remove(avi_path)
 
-            # returns download url and success message
+            upload_to_r2(output_path, r2_key=r2_key)
+
+            # generate signed url
+            signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
+
             return {
-                "message": "video processed successfully", # success
-                "url": s3_url, # will attributed to each user
-                "n_shots": n_shots, # added to the total shots of a user
+                "message": "video processed successfully",
+                "url": signed_url,
+                "expires_in": 3600,
+                "n_shots": n_shots,
                 "most_common_shot": max(shot_occurences, key=shot_occurences.get)
             }
-        
+                    
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
