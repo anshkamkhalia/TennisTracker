@@ -298,6 +298,9 @@ async def main(request: Request, video: UploadFile = File(...)):
         
         # mini court setup
         court_box = None
+        # for homography
+        court_corners = None
+        H = None
         k = 1 # for court shrinkage
         court_padding = 30 # amount of pixels to increase court size by
 
@@ -669,7 +672,24 @@ async def main(request: Request, video: UploadFile = File(...)):
                 bottom_left  = (x1-court_padding, y2+court_padding)
                 bottom_right = (x2+court_padding, y2+court_padding)
 
-                # draw
+                court_corners = [
+                    (int(top_left[0]), int(top_left[1])),
+                    (int(top_right[0]), int(top_right[1])),
+                    (int(bottom_right[0]), int(bottom_right[1])),
+                    (int(bottom_left[0]), int(bottom_left[1])),
+                ]
+
+                # compute homography matrix
+                src_pts = np.array(court_corners, dtype=np.float32)
+
+                dst_pts = np.array([
+                    [mx, my],
+                    [mx + mw, my],
+                    [mx + mw, my + mh],
+                    [mx, my + mh]
+                ], dtype=np.float32)
+
+                H, _ = cv.findHomography(src_pts, dst_pts)
 
                 # create an array of points in the correct order
                 pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
@@ -679,39 +699,60 @@ async def main(request: Request, video: UploadFile = File(...)):
 
 # -------------------------------------------------------------------------------- update mini court --------------------------------------------------------------------------------
 
-            mini_w, mini_h = 200, 400           # size of mini court
-            margin = 20                         # padding from top-right corner
-            mini_top_left = (1280 - mini_w - margin, margin)
-            mini_bottom_right = (1280 - margin, margin + mini_h)
+            # mini_w, mini_h = 200, 400           # size of mini court
+            # margin = 20                         # padding from top-right corner
+            # mini_top_left = (1280 - mini_w - margin, margin)
+            # mini_bottom_right = (1280 - margin, margin + mini_h)
 
-            # copy frame
+            # # copy frame
+            # frame_with_mini = frame.copy()
+
+            # # overlay mini court permanently
+            # alpha = 1.0  # fully opaque black background
+            # mask = mini_court_overlay > 0
+            # frame_with_mini[mask] = mini_court_overlay[mask]
+
+            # # overlay the mini court permanently
+            # frame_with_mini = frame.copy()
+
+            # # paste mini court overlay directly (black background + neon lines)
+            # mx, my = mini_top_left
+            # frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
+
+            # # draw yellow ball if detected
+            # if moving_ball and court_box is not None:
+
+            #     cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
+
+            #     # get ratios from main plane to mini court planes
+            #     ball_x_ratio = (cx - cx1) / (cx2 - cx1)
+            #     ball_y_ratio = (cy - cy1) / (cy2 - cy1)
+                
+            #     mini_ball_x = int(mx + ball_x_ratio * mw)
+            #     mini_ball_y = int(my + ball_y_ratio * mh)
+
+            #     cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1) # draw ball
+
             frame_with_mini = frame.copy()
 
-            # overlay mini court permanently
-            alpha = 1.0  # fully opaque black background
-            mask = mini_court_overlay > 0
-            frame_with_mini[mask] = mini_court_overlay[mask]
-
-            # overlay the mini court permanently
-            frame_with_mini = frame.copy()
-
-            # paste mini court overlay directly (black background + neon lines)
-            mx, my = mini_top_left
+            # draw mini court overlay
             frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
 
-            # draw yellow ball if detected
-            if moving_ball and court_box is not None:
+            # map ball to mini court using homography
+            if moving_ball and H is not None:
 
-                cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
+                ball_pt = np.array([[[cx, cy]]], dtype=np.float32)
 
-                # get ratios from main plane to mini court planes
-                ball_x_ratio = (cx - cx1) / (cx2 - cx1)
-                ball_y_ratio = (cy - cy1) / (cy2 - cy1)
-                
-                mini_ball_x = int(mx + ball_x_ratio * mw)
-                mini_ball_y = int(my + ball_y_ratio * mh)
+                mini_pt = cv.perspectiveTransform(ball_pt, H)
 
-                cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1) # draw ball
+                mini_ball_x = int(mini_pt[0][0][0])
+                mini_ball_y = int(mini_pt[0][0][1])
+
+                # clamp ball so it stays inside mini court
+                mini_ball_x = max(mx, min(mx + mw, mini_ball_x))
+                mini_ball_y = max(my, min(my + mh, mini_ball_y))
+
+                cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
 
 # -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
 
