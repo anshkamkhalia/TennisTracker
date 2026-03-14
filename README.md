@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo2.gif" alt="Demo GIF" width="600"/>
+  <img src="assets/demo3.gif" alt="Demo GIF" width="600"/>
 </p>
 
 <p align="center">
@@ -63,6 +63,16 @@
 - Court detection and mini-court overlay
 - Annotated video output, transcoded to MP4 via ffmpeg
 - Uploads result to Cloudflare R2
+</details>
+
+<details>
+<summary><b>Mini-Court Homography Overlay</b></summary>
+
+- Court detection (YOLO) picks the largest box; baseline length -> meters-per-pixel for speed.
+- Far baseline is shrunk with a tunable ratio `k` plus padding to approximate perspective.
+- Four court corner points (top/bottom × left/right) are mapped to a fixed mini-court (200×400 px at top-right) via `cv.findHomography`.
+- `cv.perspectiveTransform` projects the detected ball location into the mini-court; result is clamped to overlay bounds and rendered in yellow.
+- The same homography keeps the mini-court aligned even as the main video resizes to 1280×720.
 </details>
 
 <details>
