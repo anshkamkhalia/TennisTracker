@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TennisTracker</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">TennisTracker</div>
+    <nav>
+      <a href="/" aria-label="Home">Upload</a>
+      <a href="https://github.com/anshkamkhalia/TennisTracker" target="_blank" rel="noreferrer">Docs</a>
+      <a href="/health" aria-label="Health check">Health</a>
+    </nav>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>Computer-vision powered tennis insights. Built with FastAPI + YOLO + TensorFlow.</p>
+  </footer>
+</body>
+</html>

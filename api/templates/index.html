@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero__text">
+    <p class="eyebrow">AI Tennis Lab</p>
+    <h1>End-to-end tennis video analysis.</h1>
+    <p class="lede">FastAPI + YOLO + TensorFlow pipeline that crops the player, detects neutral vs swing, classifies strokes, tracks the ball, overlays a mini-court, estimates speed, and returns a signed Cloudflare R2 link.</p>
+    <div class="pill-row">
+      <span class="pill">Shot type</span>
+      <span class="pill">Ball trail</span>
+      <span class="pill">Mini-court</span>
+      <span class="pill">Speed</span>
+      <span class="pill">Signed URL</span>
+    </div>
+    <a class="primary cta" href="#upload">Skip to upload</a>
+  </div>
+</section>
+
+<section class="info-grid">
+  <div class="panel">
+    <div class="panel__header">
+      <h2>What happens under the hood</h2>
+      <p>Summarized from the project README.</p>
+    </div>
+    <ul class="list">
+      <li>YOLO human detector crops the player; MediaPipe Pose feeds neutral vs swing gating.</li>
+      <li>Sequence shot classifier labels forehand, backhand, slice/volley, serve/overhead.</li>
+      <li>Ball detector tracks position and draws a decaying trail for trajectory context.</li>
+      <li>Court detector + homography project the ball onto a 200×400 mini-court overlay.</li>
+      <li>Pixel-to-meter conversion estimates ball speed; annotated frames render to MP4.</li>
+      <li>Output is uploaded to Cloudflare R2 and returned as a time-limited signed link.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <div class="panel__header">
+      <h2>Models & assets</h2>
+      <p>Runtime weights loaded by the API.</p>
+    </div>
+    <ul class="list">
+      <li><strong>yolo11n.pt</strong> — player detector for pose cropping.</li>
+      <li><strong>hugging_face_best.pt</strong> — tennis ball detector.</li>
+      <li><strong>src/court_model/best.pt</strong> — court bounding box detector.</li>
+      <li><strong>shot_classifier.keras</strong> — pose-based stroke classifier.</li>
+      <li><strong>neutrality.keras</strong> — neutral vs swing gate.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <div class="panel__header">
+      <h2>How to test quickly</h2>
+      <p>No login needed.</p>
+    </div>
+    <ol class="list ordered">
+      <li>Trim a rally clip to keep it under {{ max_size_mb }} MB (mp4/mov/mkv).</li>
+      <li>Hit “Process video” — request may take ~1–2 minutes with models loaded.</li>
+      <li>Open the signed link or stream it in the player below. Links expire in 1 hour.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="upload" id="upload">
+  <div class="panel" id="dropzone" data-max-size="{{ max_size_mb }}">
+    <div class="panel__header">
+      <h2>Process a video</h2>
+      <p>Max {{ max_size_mb }} MB · {{ allowed_ext }}</p>
+    </div>
+    <label class="droparea" for="video-input">
+      <input type="file" id="video-input" name="video" accept=".mp4,.mov,.mkv" hidden />
+      <div class="droparea__icon">⬆</div>
+      <p class="droparea__title">Drop your file or browse</p>
+      <p class="droparea__hint">We keep it local until upload. No sign-in required.</p>
+    </label>
+    <div class="filename" id="filename">No file selected.</div>
+    <button id="submit-btn" class="primary">Process video</button>
+    <p class="status" id="status">Waiting for a file.</p>
+  </div>
+</section>
+
+<section class="result" id="result-card" hidden>
+  <div class="panel">
+    <div class="panel__header">
+      <h2>Results</h2>
+      <p>Signed link valid for 1 hour.</p>
+    </div>
+    <div class="result__grid solo">
+      <div>
+        <p class="label">Download / stream</p>
+        <a class="link" id="result-link" href="#" target="_blank" rel="noreferrer">Open processed video</a>
+      </div>
+    </div>
+    <video id="result-video" controls playsinline class="result__video"></video>
+  </div>
+</section>
+
+<script src="/static/app.js"></script>
+{% endblock %}

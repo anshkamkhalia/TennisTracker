@@ -10,6 +10,9 @@
 # new fastapi backend
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -105,6 +108,9 @@ pose = mp_pose.Pose(
 
 app = FastAPI()
 
+templates = Jinja2Templates(directory="api/templates")
+app.mount("/static", StaticFiles(directory="api/static"), name="static")
+
 # rate limiting (slowapi)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -114,7 +120,7 @@ app.add_middleware(SlowAPIMiddleware)
 # for rn connection
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8081"],
+    allow_origins=["*", "http://localhost:8081", "http://127.0.0.1:8000", "http://localhost:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -129,6 +135,30 @@ ALLOWED_MIME_TYPES = {
     "video/x-matroska"   # .mkv
 }
 ALLOWED_EXTENSIONS = {"mp4", "mov", "mkv"}
+
+
+@app.get("/", response_class=HTMLResponse)
+async def landing(request: Request):
+    """landing/upload page for the web frontend."""
+    max_mb = MAX_VIDEO_SIZE // (1024 * 1024)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "max_size_mb": max_mb,
+            "allowed_ext": ", ".join(sorted(ALLOWED_EXTENSIONS)),
+        },
+    )
+
+
+@app.get("/health")
+async def healthcheck():
+    """lightweight health endpoint for checks."""
+    return {
+        "status": "ok",
+        "models_loaded": True,
+        "bucket": R2_BUCKET,
+    }
 
 # -------------------------------------------------------------------------------- helper functions --------------------------------------------------------------------------------
 
@@ -217,14 +247,6 @@ async def main(request: Request, video: UploadFile = File(...)):
         ball_history = [] # for savitzky–golay filter
         BALL_SMOOTH_WINDOW = 5
         BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
-        
-        n_shots = 0 # stores total shots
-        shot_occurences = { # amount of occurences of each shot
-            "forehand": 0,
-            "backhand": 0,
-            "serve_overhead": 0,
-            "slice_volley": 0,
-        }
 
         # pixel to meters for ball speed
         meters_per_pixel = None
@@ -455,13 +477,11 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 # probs is now (1, num_classes), take first element
                 probs = np.asarray(probs)[0]
-                n_shots += 1 # add to total number of shots
 
                 # get label and confidence
                 label = np.argmax(probs)
                 output_class = LABELS_INV[label]
 
-                shot_occurences[output_class] += 1 # increment occurence
                 confidence = probs[label] # get confidence
 
                 # format text
@@ -640,7 +660,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                 # calculate meters to pixel
                 if court_box_updated:
                     meters_per_pixel = court_baseline_length_meters / court_box.length # get meters per pixel
-                    print(f"calculated meters per pixel as: {meters_per_pixel}")
 
                 try:
                     x1, y1, x2, y2 = map(int, court_box.xyxy[0])
@@ -896,8 +915,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                 "message": "video processed successfully",
                 "url": signed_url,
                 "expires_in": 3600,
-                "n_shots": n_shots,
-                "most_common_shot": max(shot_occurences, key=shot_occurences.get)
             }
                     
         except Exception as e:
