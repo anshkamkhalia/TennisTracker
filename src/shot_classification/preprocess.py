@@ -16,7 +16,7 @@ mixed_precision.set_global_policy("mixed_float16")
 
 # establish paths
 ROOT = "data/shot-classification"
-
+os.makedirs(f"{ROOT}/landmarks", exist_ok=True)
 # 26 ms delay (for optimal video speed)
 DELAY = 26
 
@@ -30,8 +30,8 @@ LABELS = {
 
 # copy map: number of times each class will be duplicated
 COPY_MAP = {
-    "forehand": 50,
-    "backhand": 50,
+    "forehand": 35,
+    "backhand": 35,
     "slice_volley": 10,
     "serve_overhead": 25, 
 }
@@ -124,7 +124,7 @@ def preprocess(
         cap = cv.VideoCapture(os.path.join(os.path.join(ROOT, path), filename)) # uses opencv to read video data
         
         NUM_LANDMARKS = 33
-        SEQUENCE_LENGTH = 75  # timesteps for LSTM
+        SEQUENCE_LENGTH = 60  # timesteps for LSTM
 
         sequence_buffer = []  # store frames temporarily
 

@@ -42,10 +42,7 @@
 | Area | Status | Notes |
 |---|---|---|
 | Backend video pipeline (`api/app.py`) | Active | Upload, inference, annotation, and storage flow are integrated |
-| Shot classification + neutral model | Active | Deployed in backend runtime |
-| Ball tracking + court overlay | Active | Running in current processing pipeline |
 | Reconstruction v2 (`src/reconstructionV2`) | In progress | EoT data/model/training scripts exist; not integrated into production API yet |
-| Frontend (`frontend/`) | In progress | Core auth/upload flows exist; polish and production UX still pending |
 
 ---
 

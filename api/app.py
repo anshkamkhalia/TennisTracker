@@ -247,6 +247,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         ball_history = [] # for savitzky–golay filter
         BALL_SMOOTH_WINDOW = 5
         BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
+        view_type = None # either "top" or "court"
 
         # pixel to meters for ball speed
         meters_per_pixel = None
@@ -369,7 +370,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         (center_x, my + mh - service_offset), line_color, thick)
 
         print("request recieved, beginning video processing") # beginning message
-
+        
 # -------------------------------------------------------------------------------- main loop --------------------------------------------------------------------------------
 
         # main processing loop
@@ -384,171 +385,273 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             orig_frame = frame.copy()
 
-# -------------------------------------------------------------------------------- shot classification --------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------- branching logic (court detection) --------------------------------------------------------------------------------
 
-            # crop human using yolo to get mediapipe keypoints
-            results = human_detector.predict(
-                source=frame,
-                classes=[0],
-                conf=0.3,
-                stream=False,
-                verbose=False,
-            )
-
-            # extract boxes
-            r = results[0]
-            r_boxes = r.boxes
-
-            if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
-                out.write(frame)
-                continue
-
-            # pick bb 
-            best_box = None
-            max_area = 0
-
-            # find best box based on area
-            # we assume that the largest is the player
-            for box in r_boxes:
-                x1, y1, x2, y2 = box.xyxy[0] # get coordinates
-                area = (x2-x1) * (y2-y1) # get area of box
-                if area > max_area:
-                    max_area = area
-                    best_box = box
-
-            # crop the person from image
-            x1,y1, x2, y2 = map(int, best_box.xyxy[0])  # get coordinates
-
-            # increase box size by 40% to account for racket
-            box_w = x2 - x1
-            box_h = y2 - y1
-
-            pad_w = int(0.4 * box_w)
-            pad_h = int(0.4 * box_h)
-
-            # increase bb sizes
-            x1 -= pad_w
-            y1 -= pad_h
-            x2 += pad_w
-            y2 += pad_h
-
-            # clamp to frame bounds
-            h, w, _ = frame.shape
-            x1 = max(0, x1)
-            y1 = max(0, y1)
-            x2 = min(w, x2)
-            y2 = min(h, y2)
-
-            cropped_person = frame[y1:y2, x1:x2]
-
-            if cropped_person.size == 0: # skip if box too small
-                out.write(frame)
-                continue
-
-            stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
-
-            results = pose.process(stroke) # process with mediapipe
-
-            if results.pose_landmarks: # check if pose detected
-
-                landmarks = results.pose_landmarks.landmark
-                pose_frame = [] # to store landmarks that form a full pose
-
-                for landmark in landmarks: # iterate and extract
-                    
-                    pose_frame.append(np.array([landmark.x, landmark.y, landmark.z])) # store landmarks to form a full pose
-
-                pose_frame = np.array(pose_frame, dtype=np.float32) # convert to array
-
-                frame_buffer.append(pose_frame) # add to buffer
-
-            if len(frame_buffer) > 0:
-                inference_neutral_pose_frame = pose_frame[np.newaxis, ..., np.newaxis] # adds batch and channel dimensions for conv layers
-                raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
-                state = int(raw_state[0][0] > 0.8) # higher thresholding
-            else:
-                state = 0
-
-            if len(frame_buffer) >= seq_len and state == 1: # buffer has reached its limit and state is 1 (swinging)
-
-                # get prediction for the last frame only
-                last_frame = np.array([frame_buffer[-1]])  # wrap in array to match model input shape
-                probs = shot_classifier.predict(last_frame, verbose=0)
-
-                # probs is now (1, num_classes), take first element
-                probs = np.asarray(probs)[0]
-
-                # get label and confidence
-                label = np.argmax(probs)
-                output_class = LABELS_INV[label]
-
-                confidence = probs[label] # get confidence
-
-                # format text
-                text = f"{output_class}: {(confidence*100):.2f}%"
-
-                previous_prediction = text # update
-                last_pred_frame = frame_index  # mark when this prediction occurred
-
-                frame_buffer = frame_buffer[30:]  # keep only the remaining frames
-
-            if frame_index - last_pred_frame <= 40:
-                display_text = previous_prediction
-            else:
-                display_text = "neutral"
-
-            # annotate frame
-            font = cv.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.8        # slightly smaller, cleaner
-            thickness = 2
-            padding = 8             # space around text
-
-            # choose color based on shot type
-            color_map = {
-                "forehand": (50, 205, 50),   # bright green
-                "backhand": (0, 191, 255),   # deep sky blue
-                "default": (0, 0, 255)       # red fallback
-            }
-            color = color_map.get(output_class, color_map["default"])
-
-            # get text size
-            (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
-
-           # top-left corner coordinates
-            x = padding
-            y = text_h + padding * 2
-
-            # create background rectangle with slight transparency
-            overlay = frame.copy()
-            cv.rectangle(
-                overlay,
-                (x - padding, y - text_h - padding),
-                (x + text_w + padding, y + baseline + padding),
-                (0, 0, 0),
-                -1
-            )
-
-            # blend the rectangle with original frame for alpha effect
-            alpha = 0.6
-            cv.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-
-            # draw text on top
-            cv.putText(
+            # get court predictions
+            court_preds = court_detector.predict(
                 frame,
-                display_text,
-                (x, y),
-                font,
-                font_scale,
-                color,
-                thickness,
-                cv.LINE_AA
-            )
+                conf=0.25,
+                verbose=False,
+                stream=False
+            )[0]
+
+            boxes = court_preds.boxes
+
+            if boxes is None or len(boxes) == 0:
+                view_type = "court"
+            else:
+                best_conf = max([float(b.conf[0]) for b in boxes])
+                
+                if best_conf > 0.5:
+                    view_type = "top"
+                else:
+                    view_type = "court"
+
+            print(view_type)
+
+            if (court_box is None or frame_index % 300 == 0) and view_type == "top": # get court locations at the beginning or every minute
+                court_box_updated = True
+                
+                # choose largest box
+                best_area = 0
+                for box in court_preds.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0]) # get box coords
+
+                    # calculate area
+                    length = y2-y1
+                    width = x2-x1
+                    area = length * width
+
+                    # find largest boxs
+                    if area >= best_area:
+                        court_box = box
+                        best_area = area
+                        court_box.length = length
+
+                # calculate meters to pixel
+                if court_box is not None and court_box_updated:
+                    meters_per_pixel = court_baseline_length_meters / court_box.length # get meters per pixel
+
+                try:
+                    x1, y1, x2, y2 = map(int, court_box.xyxy[0])
+                    
+                except Exception as e:
+                    print(e)
+
+            else:
+                pass
+
+            # now that we have the court box we can scale the farther baseline
+            if court_box is not None and view_type == "top":
+                x1, y1, x2, y2 = map(int, court_box.xyxy[0])
+
+                # (x1, y2), (x2, y2) <- closer baseline (near camera)
+                # (x1, y1), (x2, y1) <- farther baseline (away from camera, the one we want to change)
+
+                # reduce far baseline width
+                height = y2-y1
+                width = x2-x1
+                shrink_ratio = k * (height/width)
+                far_width = width * (1 - shrink_ratio)
+                dx = (width - far_width) / 2
+
+                # get court corners
+                top_left = (x1 + dx - court_padding, y1 - court_padding)
+                top_right = (x2 - dx + court_padding, y1 - court_padding)
+
+                bottom_left  = (x1-court_padding, y2+court_padding)
+                bottom_right = (x2+court_padding, y2+court_padding)
+
+                court_corners = [
+                    (int(top_left[0]), int(top_left[1])),
+                    (int(top_right[0]), int(top_right[1])),
+                    (int(bottom_right[0]), int(bottom_right[1])),
+                    (int(bottom_left[0]), int(bottom_left[1])),
+                ]
+
+                # compute homography matrix
+                src_pts = np.array(court_corners, dtype=np.float32)
+
+                dst_pts = np.array([
+                    [mx, my],
+                    [mx + mw, my],
+                    [mx + mw, my + mh],
+                    [mx, my + mh]
+                ], dtype=np.float32)
+
+                H, _ = cv.findHomography(src_pts, dst_pts)
+
+                # create an array of points in the correct order
+                pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
+
+                # cv.polylines expects shape (num_points, 1, 2)
+                pts = pts.reshape((-1, 1, 2))
+
+# -------------------------------------------------------------------------------- shot classification --------------------------------------------------------------------------------
+            if view_type == "court":
+                # crop human using yolo to get mediapipe keypoints
+                results = human_detector.predict(
+                    source=frame,
+                    classes=[0],
+                    conf=0.3,
+                    stream=False,
+                    verbose=False,
+                )
+
+                # extract boxes
+                r = results[0]
+                r_boxes = r.boxes
+
+                if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
+                    out.write(frame)
+                    continue
+
+                # pick bb 
+                best_box = None
+                max_area = 0
+
+                # find best box based on area
+                # we assume that the largest is the player
+                for box in r_boxes:
+                    x1, y1, x2, y2 = box.xyxy[0] # get coordinates
+                    area = (x2-x1) * (y2-y1) # get area of box
+                    if area > max_area:
+                        max_area = area
+                        best_box = box
+
+                # crop the person from image
+                x1,y1, x2, y2 = map(int, best_box.xyxy[0])  # get coordinates
+
+                # increase box size by 40% to account for racket
+                box_w = x2 - x1
+                box_h = y2 - y1
+
+                pad_w = int(0.4 * box_w)
+                pad_h = int(0.4 * box_h)
+
+                # increase bb sizes
+                x1 -= pad_w
+                y1 -= pad_h
+                x2 += pad_w
+                y2 += pad_h
+
+                # clamp to frame bounds
+                h, w, _ = frame.shape
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(w, x2)
+                y2 = min(h, y2)
+
+                cropped_person = frame[y1:y2, x1:x2]
+
+                if cropped_person.size == 0: # skip if box too small
+                    out.write(frame)
+                    continue
+
+                stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
+
+                results = pose.process(stroke) # process with mediapipe
+
+                if results.pose_landmarks: # check if pose detected
+
+                    landmarks = results.pose_landmarks.landmark
+                    pose_frame = [] # to store landmarks that form a full pose
+
+                    for landmark in landmarks: # iterate and extract
+                        
+                        pose_frame.append(np.array([landmark.x, landmark.y, landmark.z])) # store landmarks to form a full pose
+
+                    pose_frame = np.array(pose_frame, dtype=np.float32) # convert to array
+
+                    frame_buffer.append(pose_frame) # add to buffer
+
+                if len(frame_buffer) > 0:
+                    inference_neutral_pose_frame = pose_frame[np.newaxis, ..., np.newaxis] # adds batch and channel dimensions for conv layers
+                    raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
+                    state = int(raw_state[0][0] > 0.8) # higher thresholding
+                else:
+                    state = 0
+
+                if len(frame_buffer) >= seq_len and state == 1: # buffer has reached its limit and state is 1 (swinging)
+
+                    # get prediction for the last frame only
+                    last_frame = np.array([frame_buffer[-1]])  # wrap in array to match model input shape
+                    probs = shot_classifier.predict(last_frame, verbose=0)
+
+                    # probs is now (1, num_classes), take first element
+                    probs = np.asarray(probs)[0]
+
+                    # get label and confidence
+                    label = np.argmax(probs)
+                    output_class = LABELS_INV[label]
+
+                    confidence = probs[label] # get confidence
+
+                    # format text
+                    text = f"{output_class}: {(confidence*100):.2f}%"
+
+                    previous_prediction = text # update
+                    last_pred_frame = frame_index  # mark when this prediction occurred
+
+                    frame_buffer = frame_buffer[30:]  # keep only the remaining frames
+
+                if frame_index - last_pred_frame <= 40:
+                    display_text = previous_prediction
+                else:
+                    display_text = "neutral"
+
+                # annotate frame
+                font = cv.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.8        # slightly smaller, cleaner
+                thickness = 2
+                padding = 8             # space around text
+
+                # choose color based on shot type
+                color_map = {
+                    "forehand": (50, 205, 50),   # bright green
+                    "backhand": (0, 191, 255),   # deep sky blue
+                    "default": (0, 0, 255)       # red fallback
+                }
+                color = color_map.get(output_class, color_map["default"])
+
+                # get text size
+                (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
+
+                # top-left corner coordinates
+                x = padding
+                y = text_h + padding * 2
+
+                # create background rectangle with slight transparency
+                overlay = frame.copy()
+                cv.rectangle(
+                    overlay,
+                    (x - padding, y - text_h - padding),
+                    (x + text_w + padding, y + baseline + padding),
+                    (0, 0, 0),
+                    -1
+                )
+
+                # blend the rectangle with original frame for alpha effect
+                alpha = 0.6
+                cv.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+                # draw text on top
+                cv.putText(
+                    frame,
+                    display_text,
+                    (x, y),
+                    font,
+                    font_scale,
+                    color,
+                    thickness,
+                    cv.LINE_AA
+                )
 
 # -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
 
-            # ball tracking
+            # ball tracking always happens no matter what
             ball_results = ball_tracker.predict(
-                source=orig_frame,
+                source=frame,
                 conf=0.2,
                 save=False,
                 verbose=False,
@@ -628,94 +731,6 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 cv.circle(frame, (tx, ty), round(idx/6)+1, color, -1) # draw ball trail
 
-# -------------------------------------------------------------------------------- court detection --------------------------------------------------------------------------------
-
-            # get court predictions
-            court_preds = court_detector.predict(
-                frame,
-                conf=0.25,
-                verbose=False,
-                stream=False
-            )[0]
-
-            if court_box is None or frame_index % 300 == 0: # get court locations at the beginning or every minute
-                court_box_updated = True
-                
-                # choose largest box
-                best_area = 0
-                for box in court_preds.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0]) # get box coords
-
-                    # calculate area
-                    length = y2-y1
-                    width = x2-x1
-                    area = length * width
-
-                    # find largest boxs
-                    if area >= best_area:
-                        court_box = box
-                        best_area = area
-                        court_box.length = length
-
-                # calculate meters to pixel
-                if court_box_updated:
-                    meters_per_pixel = court_baseline_length_meters / court_box.length # get meters per pixel
-
-                try:
-                    x1, y1, x2, y2 = map(int, court_box.xyxy[0])
-                    
-                except Exception as e:
-                    print(e)
-
-            else:
-                pass
-
-            # now that we have the court box we can scale the farther baseline
-            if court_box is not None:
-                x1, y1, x2, y2 = map(int, court_box.xyxy[0])
-
-                # (x1, y2), (x2, y2) <- closer baseline (near camera)
-                # (x1, y1), (x2, y1) <- farther baseline (away from camera, the one we want to change)
-
-                # reduce far baseline width
-                height = y2-y1
-                width = x2-x1
-                shrink_ratio = k * (height/width)
-                far_width = width * (1 - shrink_ratio)
-                dx = (width - far_width) / 2
-
-                # get court corners
-                top_left = (x1 + dx - court_padding, y1 - court_padding)
-                top_right = (x2 - dx + court_padding, y1 - court_padding)
-
-                bottom_left  = (x1-court_padding, y2+court_padding)
-                bottom_right = (x2+court_padding, y2+court_padding)
-
-                court_corners = [
-                    (int(top_left[0]), int(top_left[1])),
-                    (int(top_right[0]), int(top_right[1])),
-                    (int(bottom_right[0]), int(bottom_right[1])),
-                    (int(bottom_left[0]), int(bottom_left[1])),
-                ]
-
-                # compute homography matrix
-                src_pts = np.array(court_corners, dtype=np.float32)
-
-                dst_pts = np.array([
-                    [mx, my],
-                    [mx + mw, my],
-                    [mx + mw, my + mh],
-                    [mx, my + mh]
-                ], dtype=np.float32)
-
-                H, _ = cv.findHomography(src_pts, dst_pts)
-
-                # create an array of points in the correct order
-                pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
-
-                # cv.polylines expects shape (num_points, 1, 2)
-                pts = pts.reshape((-1, 1, 2))
-
 # -------------------------------------------------------------------------------- update mini court --------------------------------------------------------------------------------
 
             # mini_w, mini_h = 200, 400           # size of mini court
@@ -752,128 +767,128 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             #     cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1) # draw ball
 
-            frame_with_mini = frame.copy()
+            if view_type == "top":
 
-            # draw mini court overlay
-            frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
+                # draw mini court overlay
+                frame[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
 
-            # map ball to mini court using homography
-            if moving_ball and H is not None:
+                # map ball to mini court using homography
+                if moving_ball and H is not None:
 
-                ball_pt = np.array([[[cx, cy]]], dtype=np.float32)
+                    ball_pt = np.array([[[cx, cy]]], dtype=np.float32)
 
-                mini_pt = cv.perspectiveTransform(ball_pt, H)
+                    mini_pt = cv.perspectiveTransform(ball_pt, H)
 
-                mini_ball_x = int(mini_pt[0][0][0])
-                mini_ball_y = int(mini_pt[0][0][1])
+                    mini_ball_x = int(mini_pt[0][0][0])
+                    mini_ball_y = int(mini_pt[0][0][1])
 
-                # clamp ball so it stays inside mini court
-                mini_ball_x = max(mx, min(mx + mw, mini_ball_x))
-                mini_ball_y = max(my, min(my + mh, mini_ball_y))
+                    # clamp ball so it stays inside mini court
+                    mini_ball_x = max(mx, min(mx + mw, mini_ball_x))
+                    mini_ball_y = max(my, min(my + mh, mini_ball_y))
 
-                cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
+                    cv.circle(frame, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
 
 # -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
 
             # speed calculation
-            if len(speed_buffer) >= speed_buffer_size:
+            if view_type == "top":
+                if len(speed_buffer) >= speed_buffer_size:
 
-                final = speed_buffer[-1]
-                initial = speed_buffer[0]
+                    final = speed_buffer[-1]
+                    initial = speed_buffer[0]
 
-                # use euclidean distance formula (kind of)
-                # i know the formula is wrong but it works better
-                # oh well
-                delta = np.sqrt((final[0] - initial[0])**2 + (final[1] - initial[0])**2)
-                
-                # time = len(speed_buffer) / input_fps
-                time = 1
-                velocity_pps = delta / time # velocity calculation with 60 frames, pixels per second
-                velocity_mps = meters_per_pixel * velocity_pps # convert pps to mps
-                velocity_mph = velocity_mps * mps_to_mph_conversion_factor # convert mps to mph
-                velocity_mph = round(velocity_mph, 2)
-                
-                # cv.putText(
-                #     frame_with_mini,
-                #     f"Estimated speed (1 second window): {min(velocity_mph, 150)}",
-                #     (0, 75),
-                #     cv.FONT_HERSHEY_SIMPLEX,
-                #     1,
-                #     (0, 255, 0),
-                #     2
-                # )
+                    # use euclidean distance formula (kind of)
+                    # i know the formula is wrong but it works better
+                    # oh well
+                    delta = np.sqrt((final[0] - initial[0])**2 + (final[1] - initial[0])**2)
+                    
+                    # time = len(speed_buffer) / input_fps
+                    time = 1
+                    velocity_pps = delta / time # velocity calculation with 60 frames, pixels per second
+                    velocity_mps = meters_per_pixel * velocity_pps # convert pps to mps
+                    velocity_mph = velocity_mps * mps_to_mph_conversion_factor # convert mps to mph
+                    velocity_mph = round(velocity_mph, 2)
+                    
+                    # cv.putText(
+                    #     frame_with_mini,
+                    #     f"Estimated speed (1 second window): {min(velocity_mph, 150)}",
+                    #     (0, 75),
+                    #     cv.FONT_HERSHEY_SIMPLEX,
+                    #     1,
+                    #     (0, 255, 0),
+                    #     2
+                    # )
 
-                prev_velocity = velocity_mph
-                # speed_buffer = speed_buffer[-40:]
-                speed_buffer.clear()
+                    prev_velocity = velocity_mph
+                    # speed_buffer = speed_buffer[-40:]
+                    speed_buffer.clear()
 
-            try:
-                # determine the displayed velocity
-                display_velocity = min(prev_velocity, 130) if prev_velocity is not None else min(velocity_mph, 130)
+                overlay = frame.copy()
+                try:
+                    # determine the displayed velocity
+                    display_velocity = min(prev_velocity, 130) if prev_velocity is not None else min(velocity_mph, 130)
 
-                # text parameters
-                text = f"Estimated speed (1 second window): {display_velocity} mph"
-                x, y = 0, 75
-                font = cv.FONT_HERSHEY_SIMPLEX
-                font_scale = 1
-                thickness = 2
-                padding = 5
+                    # text parameters
+                    text = f"Estimated speed (1 second window): {display_velocity} mph"
+                    x, y = 0, 75
+                    font = cv.FONT_HERSHEY_SIMPLEX
+                    font_scale = 1
+                    thickness = 2
+                    padding = 5
 
-                # get text size
-                (text_w, text_h), baseline = cv.getTextSize(text, font, font_scale, thickness)
+                    # get text size
+                    (text_w, text_h), baseline = cv.getTextSize(text, font, font_scale, thickness)
 
-                # create overlay for semi-transparent background
-                overlay = frame_with_mini.copy()
-                cv.rectangle(
-                    overlay,
-                    (x - padding, y - text_h - padding),
-                    (x + text_w + padding, y + baseline + padding),
-                    (0, 0, 0),  # black background
-                    -1
-                )
+                    # create overlay for semi-transparent background
+                    overlay = frame.copy()
+                    cv.rectangle(
+                        overlay,
+                        (x - padding, y - text_h - padding),
+                        (x + text_w + padding, y + baseline + padding),
+                        (0, 0, 0),  # black background
+                        -1
+                    )
 
-                # blend overlay with frame
-                alpha = 0.5  # 50% transparency
-                cv.addWeighted(overlay, alpha, frame_with_mini, 1 - alpha, 0, frame_with_mini)
+                    # blend overlay with frame
+                    alpha = 0.5  # 50% transparency
+                    cv.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-                # draw text on top
-                cv.putText(frame_with_mini, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
+                    # draw text on top
+                    cv.putText(frame, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
 
-            except Exception as e:
-                # text parameters
-                text = f"waiting"
-                x, y = 0, 75
-                font = cv.FONT_HERSHEY_SIMPLEX
-                font_scale = 1
-                thickness = 2
-                padding = 5
+                except Exception as e:
+                    # text parameters
+                    text = f"waiting"
+                    x, y = 0, 75
+                    font = cv.FONT_HERSHEY_SIMPLEX
+                    font_scale = 1
+                    thickness = 2
+                    padding = 5
 
-                # get text size
-                (text_w, text_h), baseline = cv.getTextSize(text, font, font_scale, thickness)
+                    # get text size
+                    (text_w, text_h), baseline = cv.getTextSize(text, font, font_scale, thickness)
 
-                # create overlay for semi-transparent background
-                overlay = frame_with_mini.copy()
-                cv.rectangle(
-                    overlay,
-                    (x - padding, y - text_h - padding),
-                    (x + text_w + padding, y + baseline + padding),
-                    (0, 0, 0),  # black background
-                    -1
-                )
+                    cv.rectangle(
+                        overlay,
+                        (x - padding, y - text_h - padding),
+                        (x + text_w + padding, y + baseline + padding),
+                        (0, 0, 0),  # black background
+                        -1
+                    )
 
-                # blend overlay with frame
-                alpha = 0.5  # 50% transparency
-                cv.addWeighted(overlay, alpha, frame_with_mini, 1 - alpha, 0, frame_with_mini)
+                    # blend overlay with frame
+                    alpha = 0.5  # 50% transparency
+                    cv.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-                # draw text on top
-                cv.putText(frame_with_mini, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
+                    # draw text on top
+                    cv.putText(frame, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
 
-            out.write(frame_with_mini) # export frame
+            out.write(frame) # export frame
 
         # -------------------------------------------------------------------------------- save to r2 --------------------------------------------------------------------------------
 
         # save to database/storage
-        r2_key = f"processed/{filename}" # output path in bucket
+        r2_key = f"processed/{view_type}_{filename}" # output path in bucket
 
         # test if output video is corrupted
         # only saves if output video is valid
