@@ -21,7 +21,7 @@
 
 <p align="center">
   <b>End-to-end tennis video analysis with computer vision and sequence models.</b><br>
-  <i>Current scope: backend inference pipeline is functional; reconstruction and frontend are still in progress.</i>
+  <i>Current scope: backend pipeline is production-ready with camera-aware routing; 3D reconstruction is on hold, frontend is mostly wrapped up.</i>
 </p>
 
 ---
@@ -34,6 +34,7 @@
 - 🏟️ **Court detection** and mini-court projection overlay
 - 📤 **End-to-end video processing** with annotated output
 - ☁️ **Cloudflare R2 upload** for processed videos
+- 🔀 **Camera-aware routing**: top-view clips → ball speed + tracking + 2D court minimap; court-level clips → shot classification + ball tracking
 
 ---
 
@@ -41,8 +42,11 @@
 
 | Area | Status | Notes |
 |---|---|---|
-| Backend video pipeline (`api/app.py`) | Active | Upload, inference, annotation, and storage flow are integrated |
-| Reconstruction v2 (`src/reconstructionV2`) | In progress | EoT data/model/training scripts exist; not integrated into production API yet |
+| Backend video pipeline (`api/app.py`) | Active | Upload, branching logic, inference, annotation, and storage flow are integrated |
+| Shot classification + neutral model | Active | Runs on court-level footage; attention-based temporal model |
+| Ball tracking + court overlay | Active | YOLO + Savitzky–Golay smoothing, minimap homography on top-view |
+| Reconstruction v2 (`src/reconstructionV2`) | Not pursuing | Monocular 3D dropped; code retained for reference only |
+| Frontend (`frontend/`) | Mostly done | Core flows built; remaining polish/edge cases only |
 
 ---
 
@@ -58,6 +62,7 @@
 - Shot-type classifier for windowed frame sequences
 - YOLO-based ball tracking and trail drawing
 - Court detection and mini-court overlay
+- Branching: top-view inputs unlock ball speed + minimap; court-level inputs emphasize shot classification + ball tracking
 - Annotated video output, transcoded to MP4 via ffmpeg
 - Uploads result to Cloudflare R2
 </details>
@@ -82,6 +87,21 @@
 
 ---
 
+## ✨ Inspiration
+I play a lot of tennis and wanted a cross-platform, budget-friendly alternative to SwingVision (which is iOS-only and pricey). This project is my way of making high-quality analytics accessible to more players.
+
+## 🧩 How It Works (Methodology & Challenges)
+
+1. **Shot classification (court-level clips):** Recorded hundreds of strokes, cropped the player with YOLO, extracted pose keypoints via MediaPipe, and fed temporal pose tensors (ℝ^(T×33×3)) into an attention-based model to learn decisive moments. Trained with Adam + SCCE, batching/shuffling, and L2 regularization for confident, generalizable predictions.
+2. **Ball tracking:** Started with TrackNet but pivoted to a fine-tuned YOLO detector plus Savitzky–Golay smoothing and gradient trails to cut jitter while preserving trajectory curvature.
+3. **Court detection & homography:** Fine-tuned a YOLO court detector. Derived a shrink factor on the far baseline to approximate perspective, then computed homography to a fixed minimap for top-view inputs.
+4. **2D court modeling (top-view clips):** Detected court corners + smoothed ball tracks → homography → minimap overlay with clamped positions for stability.
+5. **Ball speed estimation (top-view clips):** Baseline length → meters-per-pixel; 60-frame buffers yield velocity in mph. Skipped for low-angle clips where depth ambiguity makes speed unreliable.
+
+Branching logic ties these pieces together: top-view videos get ball speed, tracking, and 2D minimap; court-level videos run shot classification plus ball tracking.
+
+---
+
 ## 🗂️ Project Structure
 
 ```text
@@ -92,9 +112,9 @@ api/                  # FastAPI backend
 frontend/             # Expo React Native app
 src/
   shot_classification/  # Pose-based shot/neutral models
-  ball_tracking/        # (Deprecated) Ball tracker training
+  ball_tracking/        # Ball tracker training
   court_model/          # Court detection & YOLO assets
-  shot_scoring/ball_speed/ # Ball speed/contact detection
+  metrics/              # Shot scoring / ball-speed metrics (was shot_scoring)
 serialized_models/     # Training outputs
 data/                  # Training datasets
 outputs/               # Rendered videos from tests
@@ -194,7 +214,7 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 </details>
 
 <details>
-<summary><b>Ball Tracking (Deprecated)</b></summary>
+<summary><b>Ball Tracking</b></summary>
 
 - `src/ball_tracking/preprocess.py` (YOLO teacher labels)
 - `src/ball_tracking/trainer.py` (disk-backed batches)
@@ -209,11 +229,11 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 </details>
 
 <details>
-<summary><b>Ball Speed & Contact Detection</b></summary>
+<summary><b>Metrics (ball speed / shot scoring)</b></summary>
 
-- `src/shot_scoring/ball_speed/preprocess.py` (velocity labels)
-- `src/shot_scoring/ball_speed/trainer.py` (ContactDetector)
-- `src/shot_scoring/ball_speed/contact_model_tester.py` (inference/visualization)
+- `src/metrics/preprocess.py` (velocity labels)
+- `src/metrics/trainer.py` (ContactDetector / scoring)
+- `src/metrics/contact_model_tester.py` (inference/visualization)
 </details>
 
 ---
@@ -239,19 +259,17 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 
 ## 🗺️ Roadmap
 
-- [ ] Integrate reconstruction v2 into the production pipeline
-- [ ] Validate reconstruction quality on real match footage (not just synthetic trajectories)
-- [ ] Finish frontend product flows (record/upload/progress/results/error handling)
-- [ ] Frontend UX polish and release hardening (device testing, loading states, edge-case handling)
-- [ ] Expand shot scoring metrics: depth, net clearance, and outcome (in/out)
+- [ ] Further tune top-view branch (ball speed + minimap stability)
+- [ ] Expand metrics in `src/metrics` (depth, clearance, outcomes)
+- [ ] Throughput/latency hardening for multi-YOLO + Mediapipe pipeline
+- [ ] Frontend polish and device testing
 
 ---
 
 ## 🔭 Next Steps
 
-- **Reconstruction:** complete `src/reconstructionV2` validation, integrate inference into `api/app.py`, and expose reconstructed outputs in the API response contract.
-- **Frontend:** move from functional prototype to production-ready app with complete result views, clearer progress feedback, and better reliability across devices.
-
+- **Reconstruction:** not planned—monocular depth is too ill-posed for reliable production use without multi-camera data.
+- **Frontend:** wrap remaining polish items (edge cases, UX fit/finish) and ship alongside the stabilized backend.
 
 ---
 

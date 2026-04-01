@@ -39,6 +39,7 @@ import subprocess # running commands like ffmpeg
 import time # fake stub delay
 import gc # garbage collection
 from scipy.signal import savgol_filter # savitzky-golay filter
+from tqdm import tqdm
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -201,6 +202,23 @@ def generate_signed_url(r2_key, expiration_seconds=3600):
     )
     return url
 
+def smooth_velocity(buffer, dt, window=5):
+    if len(buffer) < window:
+        return 0.0
+    
+    velocities = []
+    for i in range(-window, -1):
+        p1 = buffer[i]
+        p2 = buffer[i + 1]
+        velocities.append(np.linalg.norm(p2 - p1) / dt)
+    
+    return np.mean(velocities)
+
+def safe_append(buffer, new_point, max_jump=100):
+    if len(buffer) > 0:
+        if np.linalg.norm(new_point - buffer[-1]) > max_jump:
+            return
+    buffer.append(new_point)
 
 # @app.before_request
 # def handle_preflight():
@@ -248,6 +266,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         BALL_SMOOTH_WINDOW = 5
         BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
         view_type = None # either "top" or "court"
+        pbar = None
 
         # pixel to meters for ball speed
         meters_per_pixel = None
@@ -258,6 +277,17 @@ async def main(request: Request, video: UploadFile = File(...)):
         mps_to_mph_conversion_factor = 2.2369363 # conversion rate from mps to mph
         prev_velocity = None
         last_ball_px = None
+
+        # wrist velocity
+        r_wrist_buffer = []
+        l_wrist_buffer = []
+        WRIST_BUFFER_MAXLEN = 60
+        wrist_alpha = 0.75
+        r_vel_mps_display = 0.0
+        l_vel_mps_display = 0.0
+        r_vel_mph_display = 0.0
+        l_vel_mph_display = 0.0
+        PLAYER_HEIGHT_METERS = 1.82 # an assumption
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
@@ -298,9 +328,13 @@ async def main(request: Request, video: UploadFile = File(...)):
         cap = cv.VideoCapture(input_path)
         if not cap.isOpened():
            raise HTTPException(status_code=400, detail="failed to open video file")
+        
+        total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT)) # get total frames for video
+        pbar = tqdm(total=total_frames, desc="processing video", unit="frame")
 
         # get video fps for videowriter
         input_fps = cap.get(cv.CAP_PROP_FPS)
+        dt = 1.0 / input_fps if input_fps > 0 else 1/60 # dt for wrist velocity calculations
         if input_fps <= 0:
             input_fps = 30  # fallback
         speed_buffer_size = int(input_fps) # ~1 second window, matches tester.py
@@ -383,8 +417,6 @@ async def main(request: Request, video: UploadFile = File(...)):
             # resize to 720p
             frame = cv.resize(frame, (1280, 720))
 
-            orig_frame = frame.copy()
-
 # -------------------------------------------------------------------------------- branching logic (court detection) --------------------------------------------------------------------------------
 
             # get court predictions
@@ -406,8 +438,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                     view_type = "top"
                 else:
                     view_type = "court"
-
-            print(view_type)
 
             if (court_box is None or frame_index % 300 == 0) and view_type == "top": # get court locations at the beginning or every minute
                 court_box_updated = True
@@ -487,7 +517,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                 # cv.polylines expects shape (num_points, 1, 2)
                 pts = pts.reshape((-1, 1, 2))
 
-# -------------------------------------------------------------------------------- shot classification --------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
             if view_type == "court":
                 # crop human using yolo to get mediapipe keypoints
                 results = human_detector.predict(
@@ -526,8 +556,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                 box_w = x2 - x1
                 box_h = y2 - y1
 
-                pad_w = int(0.4 * box_w)
-                pad_h = int(0.4 * box_h)
+                pad_w = int(0.2 * box_w)
+                pad_h = int(0.2 * box_h)
 
                 # increase bb sizes
                 x1 -= pad_w
@@ -552,10 +582,69 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 results = pose.process(stroke) # process with mediapipe
 
+                pixel_height = y2 - y1
+                if pixel_height > 0:
+                    meters_per_pixel_approx = PLAYER_HEIGHT_METERS / pixel_height
+                else:
+                    meters_per_pixel_approx = 0
+
                 if results.pose_landmarks: # check if pose detected
 
                     landmarks = results.pose_landmarks.landmark
                     pose_frame = [] # to store landmarks that form a full pose
+
+                    # wrist velocity calculations
+                    h, w, _ = stroke.shape
+
+                    # wrist positions (pixel space)
+                    r_wrist = np.array([
+                        landmarks[16].x * w,
+                        landmarks[16].y * h
+                    ])
+
+                    l_wrist = np.array([
+                        landmarks[15].x * w,
+                        landmarks[15].y * h
+                    ])
+
+                    # convert to full-frame coords
+                    r_wrist += np.array([x1, y1])
+                    l_wrist += np.array([x1, y1])
+
+                    # append safely
+                    safe_append(r_wrist_buffer, r_wrist)
+                    safe_append(l_wrist_buffer, l_wrist)
+
+                    # trim buffers
+                    if len(r_wrist_buffer) > WRIST_BUFFER_MAXLEN:
+                        r_wrist_buffer.pop(0)
+                    if len(l_wrist_buffer) > WRIST_BUFFER_MAXLEN:
+                        l_wrist_buffer.pop(0)
+
+                    # compute velocities (px/s)
+                    r_vel_px = smooth_velocity(r_wrist_buffer, dt)
+                    l_vel_px = smooth_velocity(l_wrist_buffer, dt)
+            
+                    # convert to real-world units
+                    r_vel_mps = r_vel_px * meters_per_pixel_approx
+                    l_vel_mps = l_vel_px * meters_per_pixel_approx
+
+                    r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
+                    l_vel_mps_display = wrist_alpha * l_vel_mps + (1 - wrist_alpha) * l_vel_mps_display
+
+                    r_vel_mph_display = r_vel_mps_display * 2.237
+                    l_vel_mph_display = l_vel_mps_display * 2.237
+
+                    # draw wrists
+                    cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
+                    cv.circle(frame, tuple(l_wrist.astype(int)), 6, (255, 0, 0), -1)
+
+                    # display velocity
+                    cv.putText(frame, f"Right wrist velocity: {r_vel_mps_display:.2f} m/s ({r_vel_mph_display:.1f} mph)", (20, 80),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+                    cv.putText(frame, f"Left wrist velocity: {l_vel_mps_display:.2f} m/s ({l_vel_mph_display:.1f} mph)", (20, 160),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
 
                     for landmark in landmarks: # iterate and extract
                         
@@ -575,11 +664,16 @@ async def main(request: Request, video: UploadFile = File(...)):
                 if len(frame_buffer) >= seq_len and state == 1: # buffer has reached its limit and state is 1 (swinging)
 
                     # get prediction for the last frame only
-                    last_frame = np.array([frame_buffer[-1]])  # wrap in array to match model input shape
-                    probs = shot_classifier.predict(last_frame, verbose=0)
+                    sequence = np.array(
+                        [f.flatten() for f in frame_buffer[-seq_len:]],
+                        dtype=np.float32
+                    )
+                    sequence = sequence[np.newaxis, ...]  # (1, seq_len, 99)
 
-                    # probs is now (1, num_classes), take first element
-                    probs = np.asarray(probs)[0]
+                    probs = shot_classifier.predict(sequence, verbose=0)[0]
+
+                    # get element
+                    probs = np.asarray(probs).squeeze()
 
                     # get label and confidence
                     label = np.argmax(probs)
@@ -593,7 +687,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                     previous_prediction = text # update
                     last_pred_frame = frame_index  # mark when this prediction occurred
 
-                    frame_buffer = frame_buffer[30:]  # keep only the remaining frames
+                    frame_buffer = frame_buffer[45:]  # keep only the remaining frames
 
                 if frame_index - last_pred_frame <= 40:
                     display_text = previous_prediction
@@ -608,9 +702,12 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 # choose color based on shot type
                 color_map = {
-                    "forehand": (50, 205, 50),   # bright green
-                    "backhand": (0, 191, 255),   # deep sky blue
-                    "default": (0, 0, 255)       # red fallback
+                    "forehand": (0, 220, 0),
+                    "backhand": (255, 140, 0),
+                    "slice_volley": (0, 200, 200),
+                    "serve_overhead": (200, 0, 200),
+                    "neutral": (180, 180, 180),
+                    "default": (0, 0, 255)
                 }
                 color = color_map.get(output_class, color_map["default"])
 
@@ -883,9 +980,10 @@ async def main(request: Request, video: UploadFile = File(...)):
                     # draw text on top
                     cv.putText(frame, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
 
+            pbar.update(1)
             out.write(frame) # export frame
 
-        # -------------------------------------------------------------------------------- save to r2 --------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------- save to r2 --------------------------------------------------------------------------------
 
         # save to database/storage
         r2_key = f"processed/{view_type}_{filename}" # output path in bucket
@@ -949,6 +1047,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         if out is not None:
             out.release()
         cv.destroyAllWindows()
+        if pbar is not None:
+            pbar.close()
 
         # delete temporary videos only if they exist
         for path in ["input_path", "output_path", "avi_path"]:
