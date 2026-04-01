@@ -289,6 +289,9 @@ async def main(request: Request, video: UploadFile = File(...)):
         l_vel_mph_display = 0.0
         PLAYER_HEIGHT_METERS = 1.82 # an assumption
 
+        # player movement
+        heat_color = None
+
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
         # security checks
@@ -366,6 +369,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         margin = 20                          # top-right corner padding
         mx, my = 1280 - mini_w - margin, margin
         mw, mh = mini_w, mini_h
+
+        player_heatmap = np.zeros((mh, mw), dtype=np.float32)
 
         # create overlay with fully black opaque background
         mini_court_overlay = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -885,6 +890,51 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                     cv.circle(frame, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
 
+# -------------------------------------------------------------------------------- player movement --------------------------------------------------------------------------------
+
+                player_results = human_detector.predict(frame, conf=0.3, verbose=False, classes=[0])[0]
+
+                largest_player = None
+                best_area = 0
+
+                for box in player_results.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    area = (x2 - x1) * (y2 - y1)
+
+                    if area > best_area:
+                        best_area = area
+                        largest_player = (x1, y1, x2, y2)
+
+                if court_box is not None and largest_player is not None:
+                    cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
+                    x1, y1, x2, y2 = largest_player
+
+                    # feet position
+                    px = int((x1 + x2) / 2)
+                    py = y2
+
+                    x_ratio = (px - cx1) / (cx2 - cx1)
+                    y_ratio = (py - cy1) / (cy2 - cy1)
+
+                    hx = int(x_ratio * mw)
+                    hy = int(y_ratio * mh)
+
+                    if 0 <= hx < mw and 0 <= hy < mh:
+                        player_heatmap[hy, hx] += 1
+
+                # decay
+                player_heatmap *= 0.995
+
+                heat_blur = cv.GaussianBlur(player_heatmap, (31, 31), 0)
+
+                if heat_blur.max() > 0:
+                    heat_norm = heat_blur / heat_blur.max()
+                else:
+                    heat_norm = heat_blur
+
+                heat_uint8 = np.uint8(255 * heat_norm)
+                heat_color = cv.applyColorMap(heat_uint8, cv.COLORMAP_JET)
+
 # -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
 
             # speed calculation
@@ -1019,12 +1069,20 @@ async def main(request: Request, video: UploadFile = File(...)):
             if os.path.exists(avi_path):
                 os.remove(avi_path)
 
+            # save heatmap
+            if view_type == "top":
+                if heat_color is None:
+                    print("heatmap is none")
+                else:
+                    cv.imwrite(f"outputs/player_heatmap_api_test.png", heat_color)
+            else: pass
+
             upload_to_r2(output_path, r2_key=r2_key)
 
             # generate signed url
             signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
 
-            return {
+            return { 
                 "message": "video processed successfully",
                 "url": signed_url,
                 "expires_in": 3600,
