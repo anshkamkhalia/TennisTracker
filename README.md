@@ -16,7 +16,11 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo3.gif" alt="Demo GIF" width="600"/>
+  <img src="assets/demo1.gif" alt="Demo GIF" width="600"/>
+</p>
+
+<p align="center">
+  <img src="assets/demo2.gif" alt="Demo 2 GIF" width="600"/>
 </p>
 
 <p align="center">
@@ -35,6 +39,7 @@
 - 📤 **End-to-end video processing** with annotated output
 - ☁️ **Cloudflare R2 upload** for processed videos
 - 🔀 **Camera-aware routing**: top-view clips → ball speed + tracking + 2D court minimap; court-level clips → shot classification + ball tracking
+- 📈 **Metrics**: wrist velocity (court-level) and player movement heatmaps on a decaying density grid
 
 ---
 
@@ -62,7 +67,7 @@
 - Shot-type classifier for windowed frame sequences
 - YOLO-based ball tracking and trail drawing
 - Court detection and mini-court overlay
-- Branching: top-view inputs unlock ball speed + minimap; court-level inputs emphasize shot classification + ball tracking
+- Branching: court detector confidence > 0.5 ⇒ `view_type="top"` (enables homography, minimap, ball speed); otherwise `view_type="court"` (shot classifier + tracking only)
 - Annotated video output, transcoded to MP4 via ffmpeg
 - Uploads result to Cloudflare R2
 </details>
@@ -96,9 +101,11 @@ I play a lot of tennis and wanted a cross-platform, budget-friendly alternative 
 2. **Ball tracking:** Started with TrackNet but pivoted to a fine-tuned YOLO detector plus Savitzky–Golay smoothing and gradient trails to cut jitter while preserving trajectory curvature.
 3. **Court detection & homography:** Fine-tuned a YOLO court detector. Derived a shrink factor on the far baseline to approximate perspective, then computed homography to a fixed minimap for top-view inputs.
 4. **2D court modeling (top-view clips):** Detected court corners + smoothed ball tracks → homography → minimap overlay with clamped positions for stability.
-5. **Ball speed estimation (top-view clips):** Baseline length → meters-per-pixel; 60-frame buffers yield velocity in mph. Skipped for low-angle clips where depth ambiguity makes speed unreliable.
+5. **Ball speed estimation (top-view clips):** Court box height → meters-per-pixel (uses 23.77 m baseline), 1-second rolling buffer (≈fps frames) → velocity in mph; disabled on court-level clips where depth ambiguity would mislead speed.
+6. **Wrist velocity (court-level):** YOLO isolates the player, MediaPipe Pose extracts wrists, per-wrist buffers (len=60) compute smoothed speeds with dt from video fps; scaling uses assumed 1.82 m player height; exponential smoothing (α=0.75) and jump rejection tame spikes.
+7. **Player movement heatmap (court-level):** Court box defines a 200×400 minimap grid; feet position (midpoint of player bbox bottom edge) is accumulated into a decaying heatmap (0.995 frame decay) to visualize movement density; exported as colored PNG.
 
-Branching logic ties these pieces together: top-view videos get ball speed, tracking, and 2D minimap; court-level videos run shot classification plus ball tracking.
+Branching logic ties these pieces together: top-view videos get ball speed, tracking, and 2D minimap; court-level videos run shot classification, ball tracking, wrist velocity, and movement heatmaps.
 
 ---
 
@@ -114,7 +121,7 @@ src/
   shot_classification/  # Pose-based shot/neutral models
   ball_tracking/        # Ball tracker training
   court_model/          # Court detection & YOLO assets
-  metrics/              # Shot scoring / ball-speed metrics (was shot_scoring)
+  metrics/              # Shot scoring, ball speed, wrist velocity, movement heatmaps (court-level)
 serialized_models/     # Training outputs
 data/                  # Training datasets
 outputs/               # Rendered videos from tests
@@ -184,16 +191,18 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 - **Accepted types:** `video/mp4`, `video/quicktime`, `video/x-matroska`
 - **Size limit:** 150 MB
 - **Rate limit:** 1 request/minute
+- **Routing:** the backend auto-detects camera angle; high-confidence court detection (`>0.5`) triggers top-view branch (ball speed + minimap), otherwise court-level branch (shot classification + tracking + metrics).
 
-**Response:**
+**Response (both branches):**
 ```json
 {
   "message": "video processed successfully",
-  "url": "<r2-object-url>",
-  "n_shots": 42,
-  "most_common_shot": "forehand"
+  "url": "<signed_r2_url>",
+  "expires_in": 3600
 }
 ```
+- `url` points to the annotated MP4 (720p) stored in R2 with a 1-hour signed URL.
+- Heatmaps (top-view minimap overlay; court-level movement heatmap PNG) are currently saved locally during processing for debugging and are not returned in the API payload.
 
 **Errors:**
 - `400` Invalid file type or video
@@ -234,6 +243,8 @@ Place these in a `.env` file at the repo root. Loaded via `python-dotenv`.
 - `src/metrics/preprocess.py` (velocity labels)
 - `src/metrics/trainer.py` (ContactDetector / scoring)
 - `src/metrics/contact_model_tester.py` (inference/visualization)
+- `src/metrics/wrist_velocity/velocity.py` (per-wrist speed on court-level clips)
+- `src/metrics/player_movement/movement.py` (movement heatmaps on court-level clips)
 </details>
 
 ---
