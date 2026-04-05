@@ -10,9 +10,9 @@
 # new fastapi backend
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# from fastapi.responses import HTMLResponse
+# from fastapi.staticfiles import StaticFiles
+# from fastapi.templating import Jinja2Templates
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -49,6 +49,7 @@ R2_ENDPOINT = os.getenv("R2_ENDPOINT")
 R2_KEY = os.getenv("R2_KEY")
 R2_SECRET = os.getenv("R2_SECRET")
 R2_BUCKET = os.getenv("R2_BUCKET")
+R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL")
 
 # client setup
 s3 = boto3.client(
@@ -109,8 +110,8 @@ pose = mp_pose.Pose(
 
 app = FastAPI()
 
-templates = Jinja2Templates(directory="api/templates")
-app.mount("/static", StaticFiles(directory="api/static"), name="static")
+# templates = Jinja2Templates(directory="api/templates")
+# app.mount("/static", StaticFiles(directory="api/static"), name="static")
 
 # rate limiting (slowapi)
 limiter = Limiter(key_func=get_remote_address)
@@ -138,18 +139,18 @@ ALLOWED_MIME_TYPES = {
 ALLOWED_EXTENSIONS = {"mp4", "mov", "mkv"}
 
 
-@app.get("/", response_class=HTMLResponse)
-async def landing(request: Request):
-    """landing/upload page for the web frontend."""
-    max_mb = MAX_VIDEO_SIZE // (1024 * 1024)
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "max_size_mb": max_mb,
-            "allowed_ext": ", ".join(sorted(ALLOWED_EXTENSIONS)),
-        },
-    )
+# @app.get("/", response_class=HTMLResponse)
+# async def landing(request: Request):
+#     """landing/upload page for the web frontend."""
+#     max_mb = MAX_VIDEO_SIZE // (1024 * 1024)
+#     return templates.TemplateResponse(
+#         "index.html",
+#         {
+#             "request": request,
+#             "max_size_mb": max_mb,
+#             "allowed_ext": ", ".join(sorted(ALLOWED_EXTENSIONS)),
+#         },
+#     )
 
 
 @app.get("/health")
@@ -177,9 +178,9 @@ def upload_to_r2(local_path, r2_key):
     """
     try:
         s3.upload_file(local_path, R2_BUCKET, r2_key) # upload file
-        url = f"{R2_ENDPOINT}/{R2_BUCKET}/{r2_key}"  # public url
-        print(f"upload successful: {url}")
-        return url
+        public_url = f"{R2_PUBLIC_URL}/{r2_key}"
+        # print(f"upload successful: {public_url}")
+        return public_url
     except NoCredentialsError:
         msg = "invalid r2 credentials, check r2_key and r2_secret"
         print(msg)
@@ -1080,11 +1081,13 @@ async def main(request: Request, video: UploadFile = File(...)):
             upload_to_r2(output_path, r2_key=r2_key)
 
             # generate signed url
-            signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
+            # signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
+            public_url = f"{R2_PUBLIC_URL}/{r2_key}"
+            print(f"\n\nurl: {public_url}\n\n")
 
             return { 
                 "message": "video processed successfully",
-                "url": signed_url,
+                "url": public_url,
                 "expires_in": 3600,
             }
                     
