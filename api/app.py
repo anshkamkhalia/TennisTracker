@@ -267,6 +267,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         BALL_SMOOTH_WINDOW = 5
         BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
         view_type = None # either "top" or "court"
+        view_type_determined = False
         pbar = None
 
         # pixel to meters for ball speed
@@ -435,15 +436,19 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             boxes = court_preds.boxes
 
-            if boxes is None or len(boxes) == 0:
-                view_type = "court"
-            else:
-                best_conf = max([float(b.conf[0]) for b in boxes])
-                
-                if best_conf > 0.5:
-                    view_type = "top"
-                else:
+            if not view_type_determined:
+                if boxes is None or len(boxes) == 0:
                     view_type = "court"
+                    view_type_determined = True
+                else:
+                    best_conf = max([float(b.conf[0]) for b in boxes])
+                    
+                    if best_conf > 0.5:
+                        view_type = "top"
+                        view_type_determined = True
+                    else:
+                        view_type = "court"
+                        view_type_determined = True
 
             if (court_box is None or frame_index % 300 == 0) and view_type == "top": # get court locations at the beginning or every minute
                 court_box_updated = True

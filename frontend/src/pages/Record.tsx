@@ -139,6 +139,7 @@ export default function Record() {
           "Ensure good lighting — avoid harsh shadows",
           "Record full rallies, not just isolated shots",
           "At least 30 seconds gives better AI analysis",
+          "Having less balls on the court is preferred—ball tracking may get confused"
         ].map((tip, i) => (
           <div key={i} className="flex gap-3 mb-3 last:mb-0">
             <span className="text-blue-400 font-bold text-sm shrink-0">{i + 1}.</span>
