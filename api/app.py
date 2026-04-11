@@ -294,6 +294,16 @@ async def main(request: Request, video: UploadFile = File(...)):
         # player movement
         heat_color = None
 
+        # state variables
+        prev_court_preds = None
+        prev_frame_pose = None
+        prev_pose_results = None
+        prev_ball_frame = None
+        prev_ball_results = None
+        prev_player_movement_results = None
+        prev_player_movement_results_frame = None
+        prev_pose_landmarks = None
+
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
         # security checks
@@ -427,12 +437,16 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- branching logic (court detection) --------------------------------------------------------------------------------
 
             # get court predictions
-            court_preds = court_detector.predict(
-                frame,
-                conf=0.25,
-                verbose=False,
-                stream=False
-            )[0]
+            if frame_index % 600 == 0 or frame_index == 1:
+                court_preds = court_detector.predict(
+                    frame,
+                    conf=0.25,
+                    verbose=False,
+                    stream=False
+                )[0]
+                prev_court_preds = court_preds
+            else:
+                court_preds = prev_court_preds
 
             boxes = court_preds.boxes
 
@@ -520,7 +534,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                     [mx, my + mh]
                 ], dtype=np.float32)
 
-                H, _ = cv.findHomography(src_pts, dst_pts)
+                if H is None:
+                    H, _ = cv.findHomography(src_pts, dst_pts)
 
                 # create an array of points in the correct order
                 pts = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.int32)
@@ -531,16 +546,21 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
             if view_type == "court":
                 # crop human using yolo to get mediapipe keypoints
-                results = human_detector.predict(
-                    source=frame,
-                    classes=[0],
-                    conf=0.3,
-                    stream=False,
-                    verbose=False,
-                )
+                if prev_frame_pose is None or frame_index - prev_frame_pose >= 3:
+                    pose_results = human_detector.predict(
+                        source=frame,
+                        classes=[0],
+                        conf=0.3,
+                        stream=False,
+                        verbose=False,
+                    )
+                    prev_pose_results = pose_results
+                    prev_frame_pose = frame_index
+                else:
+                    pose_results = prev_pose_results
 
                 # extract boxes
-                r = results[0]
+                r = pose_results[0]
                 r_boxes = r.boxes
 
                 if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
@@ -591,7 +611,11 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
 
-                results = pose.process(stroke) # process with mediapipe
+                if frame_index % 2 == 0:
+                    results = pose.process(stroke)
+                    prev_pose_landmarks = results
+                else:
+                    results = prev_pose_landmarks
 
                 pixel_height = y2 - y1
                 if pixel_height > 0:
@@ -599,7 +623,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                 else:
                     meters_per_pixel_approx = 0
 
-                if results.pose_landmarks: # check if pose detected
+                if results is not None and results.pose_landmarks:
 
                     landmarks = results.pose_landmarks.landmark
                     pose_frame = [] # to store landmarks that form a full pose
@@ -758,12 +782,17 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
 
             # ball tracking always happens no matter what
-            ball_results = ball_tracker.predict(
-                source=frame,
-                conf=0.2,
-                save=False,
-                verbose=False,
-            )
+            if prev_ball_frame is None or frame_index - prev_ball_frame >= 2:
+                ball_results = ball_tracker.predict(
+                    source=frame,
+                    conf=0.2,
+                    save=False,
+                    verbose=False,
+                )
+                prev_ball_results = ball_results
+                prev_ball_frame = frame_index
+            else:
+                ball_results = prev_ball_results
 
             r = ball_results[0]
             boxes = r.boxes
@@ -897,8 +926,13 @@ async def main(request: Request, video: UploadFile = File(...)):
                     cv.circle(frame, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
 
 # -------------------------------------------------------------------------------- player movement --------------------------------------------------------------------------------
-
-                player_results = human_detector.predict(frame, conf=0.3, verbose=False, classes=[0])[0]
+                
+                if prev_player_movement_results_frame is None or frame_index - prev_player_movement_results_frame >= 3:
+                    player_results = human_detector.predict(frame, conf=0.3, verbose=False, classes=[0])[0]
+                    prev_player_movement_results = player_results
+                    prev_player_movement_results_frame = frame_index
+                else:
+                    player_results = prev_player_movement_results
 
                 largest_player = None
                 best_area = 0
