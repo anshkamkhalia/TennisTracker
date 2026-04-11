@@ -4,6 +4,9 @@
 # - ball detection/tracking
 # - 2d court modeling with ball
 # - ball speed estimation
+# - heatmap-based player movement tracking
+# - wrist velocity
+# - top and court viewpoints supported
 
 # -------------------------------------------------------------------------------- setup --------------------------------------------------------------------------------
 
@@ -24,7 +27,7 @@ import mediapipe as mp # keypoint extraction (pose)
 import cv2 as cv # video handling and utils
 from ultralytics import YOLO # object detection
 import numpy as np # mathematical operations and arrays
-from src.shot_classification.model import Attention, SequenceAttention, ShotClassifier # subclassed models and layers
+from src.shot_classification.model import ShotClassifier # subclassed model
 from src.shot_classification.neutral_model import NeutralIdentifier, Attention # subclassed models and layers
 import supabase # metadata?
 import os # path handling
@@ -40,6 +43,7 @@ import time # fake stub delay
 import gc # garbage collection
 from scipy.signal import savgol_filter # savitzky-golay filter
 from tqdm import tqdm
+import traceback
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -72,13 +76,13 @@ LABELS = {
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 # paths
-shot_model_path = "api/serialized_models/shot_classifier.keras"
+shot_model_path = "api/serialized_models/new_sc.keras" # use new shot clasification model (temporal transformer)
 neutral_model_path = "api/serialized_models/neutrality.keras"
 # classifies shots
 shot_classifier = tf.keras.saving.load_model(shot_model_path, custom_objects={ # load model with correct classes
     "ShotClassifier": ShotClassifier,
-    "Attention": Attention,
-    "SequenceAttention": SequenceAttention,
+    # "Attention": Attention,
+    # "SequenceAttention": SequenceAttention,
 })
 
 # identifies neutral positions
@@ -221,6 +225,76 @@ def safe_append(buffer, new_point, max_jump=100):
             return
     buffer.append(new_point)
 
+# keypoint feature extraction functions
+def calculate_angle(a, b, c):
+    ba = a - b
+    bc = c - b
+    denom = (np.linalg.norm(ba) * np.linalg.norm(bc)) + 1e-8
+    cosang = np.dot(ba, bc) / denom
+    return np.arccos(np.clip(cosang, -1.0, 1.0))
+
+
+def extract_features(pose_frame, prev_pose_frame):
+    features = []
+
+    left_hip = pose_frame[23]
+    right_hip = pose_frame[24]
+    left_shoulder = pose_frame[11]
+    right_shoulder = pose_frame[12]
+
+    hip_center = (left_hip + right_hip) / 2.0
+    shoulder_center = (left_shoulder + right_shoulder) / 2.0
+
+    torso = np.linalg.norm(shoulder_center - hip_center)
+    torso = torso if torso > 1e-6 else 1.0
+
+    normalized_pose = (pose_frame - hip_center) / torso
+    features.extend(normalized_pose.flatten())
+
+    if prev_pose_frame is None:
+        velocity = np.zeros_like(normalized_pose)
+    else:
+        prev_left_hip = prev_pose_frame[23]
+        prev_right_hip = prev_pose_frame[24]
+        prev_left_shoulder = prev_pose_frame[11]
+        prev_right_shoulder = prev_pose_frame[12]
+
+        prev_hip_center = (prev_left_hip + prev_right_hip) / 2.0
+        prev_shoulder_center = (prev_left_shoulder + prev_right_shoulder) / 2.0
+
+        prev_torso = np.linalg.norm(prev_shoulder_center - prev_hip_center)
+        prev_torso = prev_torso if prev_torso > 1e-6 else 1.0
+
+        prev_normalized_pose = (prev_pose_frame - prev_hip_center) / prev_torso
+        velocity = normalized_pose - prev_normalized_pose
+
+    features.extend(velocity.flatten())
+
+    angle_features = [
+        calculate_angle(normalized_pose[11], normalized_pose[13], normalized_pose[15]),
+        calculate_angle(normalized_pose[12], normalized_pose[14], normalized_pose[16]),
+        calculate_angle(normalized_pose[23], normalized_pose[25], normalized_pose[27]),
+        calculate_angle(normalized_pose[24], normalized_pose[26], normalized_pose[28]),
+        calculate_angle(normalized_pose[13], normalized_pose[11], normalized_pose[23]),
+        calculate_angle(normalized_pose[14], normalized_pose[12], normalized_pose[24]),
+    ]
+
+    features.extend(angle_features)
+
+    right_wrist = normalized_pose[16]
+    left_wrist = normalized_pose[15]
+
+    wrist_features = [
+        right_wrist[0], right_wrist[1], right_wrist[2],
+        left_wrist[0], left_wrist[1], left_wrist[2],
+        np.linalg.norm(velocity[16]),
+        np.linalg.norm(velocity[15]),
+    ]
+
+    features.extend(wrist_features)
+
+    return np.array(features, dtype=np.float32)
+
 # @app.before_request
 # def handle_preflight():
 #     if request.method == "OPTIONS":
@@ -303,6 +377,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         prev_player_movement_results = None
         prev_player_movement_results_frame = None
         prev_pose_landmarks = None
+        prev_pose_frame = None
+        pose_frame = None
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
@@ -491,7 +567,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                     x1, y1, x2, y2 = map(int, court_box.xyxy[0])
                     
                 except Exception as e:
-                    print(e)
+                    print(traceback.format_exc())
+                    raise HTTPException(status_code=500, detail=traceback.format_exc())
 
             else:
                 pass
@@ -544,6 +621,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                 pts = pts.reshape((-1, 1, 2))
 
 # -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
+            
             if view_type == "court":
                 # crop human using yolo to get mediapipe keypoints
                 if prev_frame_pose is None or frame_index - prev_frame_pose >= 3:
@@ -559,17 +637,21 @@ async def main(request: Request, video: UploadFile = File(...)):
                 else:
                     pose_results = prev_pose_results
 
+
                 # extract boxes
                 r = pose_results[0]
                 r_boxes = r.boxes
+
 
                 if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
                     out.write(frame)
                     continue
 
-                # pick bb 
+
+                # pick bb
                 best_box = None
                 max_area = 0
+
 
                 # find best box based on area
                 # we assume that the largest is the player
@@ -580,21 +662,26 @@ async def main(request: Request, video: UploadFile = File(...)):
                         max_area = area
                         best_box = box
 
+
                 # crop the person from image
                 x1,y1, x2, y2 = map(int, best_box.xyxy[0])  # get coordinates
+
 
                 # increase box size by 40% to account for racket
                 box_w = x2 - x1
                 box_h = y2 - y1
 
+
                 pad_w = int(0.2 * box_w)
                 pad_h = int(0.2 * box_h)
+
 
                 # increase bb sizes
                 x1 -= pad_w
                 y1 -= pad_h
                 x2 += pad_w
                 y2 += pad_h
+
 
                 # clamp to frame bounds
                 h, w, _ = frame.shape
@@ -603,13 +690,17 @@ async def main(request: Request, video: UploadFile = File(...)):
                 x2 = min(w, x2)
                 y2 = min(h, y2)
 
+
                 cropped_person = frame[y1:y2, x1:x2]
+
 
                 if cropped_person.size == 0: # skip if box too small
                     out.write(frame)
                     continue
 
+
                 stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
+
 
                 if frame_index % 2 == 0:
                     results = pose.process(stroke)
@@ -617,19 +708,24 @@ async def main(request: Request, video: UploadFile = File(...)):
                 else:
                     results = prev_pose_landmarks
 
+
                 pixel_height = y2 - y1
                 if pixel_height > 0:
                     meters_per_pixel_approx = PLAYER_HEIGHT_METERS / pixel_height
                 else:
                     meters_per_pixel_approx = 0
 
+
                 if results is not None and results.pose_landmarks:
+
 
                     landmarks = results.pose_landmarks.landmark
                     pose_frame = [] # to store landmarks that form a full pose
 
+
                     # wrist velocity calculations
                     h, w, _ = stroke.shape
+
 
                     # wrist positions (pixel space)
                     r_wrist = np.array([
@@ -637,18 +733,22 @@ async def main(request: Request, video: UploadFile = File(...)):
                         landmarks[16].y * h
                     ])
 
+
                     l_wrist = np.array([
                         landmarks[15].x * w,
                         landmarks[15].y * h
                     ])
 
+
                     # convert to full-frame coords
                     r_wrist += np.array([x1, y1])
                     l_wrist += np.array([x1, y1])
 
+
                     # append safely
                     safe_append(r_wrist_buffer, r_wrist)
                     safe_append(l_wrist_buffer, l_wrist)
+
 
                     # trim buffers
                     if len(r_wrist_buffer) > WRIST_BUFFER_MAXLEN:
@@ -656,128 +756,128 @@ async def main(request: Request, video: UploadFile = File(...)):
                     if len(l_wrist_buffer) > WRIST_BUFFER_MAXLEN:
                         l_wrist_buffer.pop(0)
 
+
                     # compute velocities (px/s)
                     r_vel_px = smooth_velocity(r_wrist_buffer, dt)
                     l_vel_px = smooth_velocity(l_wrist_buffer, dt)
-            
+
                     # convert to real-world units
                     r_vel_mps = r_vel_px * meters_per_pixel_approx
                     l_vel_mps = l_vel_px * meters_per_pixel_approx
 
+
                     r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
                     l_vel_mps_display = wrist_alpha * l_vel_mps + (1 - wrist_alpha) * l_vel_mps_display
 
+
                     r_vel_mph_display = r_vel_mps_display * 2.237
                     l_vel_mph_display = l_vel_mps_display * 2.237
+
 
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
                     cv.circle(frame, tuple(l_wrist.astype(int)), 6, (255, 0, 0), -1)
 
+
                     # display velocity
                     cv.putText(frame, f"Right wrist velocity: {r_vel_mps_display:.2f} m/s ({r_vel_mph_display:.1f} mph)", (20, 80),
                             cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+
                     cv.putText(frame, f"Left wrist velocity: {l_vel_mps_display:.2f} m/s ({l_vel_mph_display:.1f} mph)", (20, 160),
                             cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
 
-                    for landmark in landmarks: # iterate and extract
+
+                    landmarks = results.pose_landmarks.landmark
+
+                    pose_frame = np.zeros((33, 3), dtype=np.float32)
+
+                    for i, landmark in enumerate(landmarks):
+                        pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
+
+                    if prev_pose_frame is not None:
+                        feat = extract_features(pose_frame, prev_pose_frame)
+                        frame_buffer.append(feat)
+                    else: pass
                         
-                        pose_frame.append(np.array([landmark.x, landmark.y, landmark.z])) # store landmarks to form a full pose
+                    prev_pose_frame = pose_frame.copy()
 
-                    pose_frame = np.array(pose_frame, dtype=np.float32) # convert to array
+                    if len(frame_buffer) > 0:
+                        inference_neutral_pose_frame = pose_frame[np.newaxis, :, :, np.newaxis]  # minimal fix: shape (1,33,3,1)
+                        raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
+                        state = int(raw_state[0][0] > 0.8)
+                    else:
+                        state = 0
 
-                    frame_buffer.append(pose_frame) # add to buffer
 
-                if len(frame_buffer) > 0:
-                    inference_neutral_pose_frame = pose_frame[np.newaxis, ..., np.newaxis] # adds batch and channel dimensions for conv layers
-                    raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
-                    state = int(raw_state[0][0] > 0.8) # higher thresholding
-                else:
-                    state = 0
+                    if len(frame_buffer) >= seq_len and state == 1:
 
-                if len(frame_buffer) >= seq_len and state == 1: # buffer has reached its limit and state is 1 (swinging)
+                        sequence = np.array(frame_buffer[-seq_len:], dtype=np.float32)
+                        sequence = sequence[np.newaxis, ...]
 
-                    # get prediction for the last frame only
-                    sequence = np.array(
-                        [f.flatten() for f in frame_buffer[-seq_len:]],
-                        dtype=np.float32
+                        probs = shot_classifier.predict(sequence, verbose=0)[0]
+
+                        label = np.argmax(probs)
+                        output_class = LABELS_INV[label]
+                        confidence = probs[label]
+
+                        text = f"{output_class}: {(confidence*100):.2f}%"
+
+                        previous_prediction = text
+                        last_pred_frame = frame_index
+
+                        frame_buffer = frame_buffer[30:]
+
+                    if frame_index - last_pred_frame <= 40:
+                        display_text = previous_prediction
+                    else:
+                        display_text = "neutral"
+
+                    # write annotated frame to output video (top-right corner)
+
+                    font = cv.FONT_HERSHEY_SIMPLEX
+                    font_scale = 1
+                    thickness = 2
+
+                    # color based on shot type
+                    if output_class == "forehand":
+                        color = (255, 191, 0)
+                    elif output_class == "backhand":
+                        color = (166, 255, 0)
+                    elif output_class == "slice_volley":
+                        color = (0, 0, 255)
+                    else:
+                        color = (120, 120, 0)
+
+                    (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
+
+                    # top-right position with padding
+                    padding = 10
+                    org = (
+                        frame.shape[1] - text_w - padding,
+                        text_h + padding
                     )
-                    sequence = sequence[np.newaxis, ...]  # (1, seq_len, 99)
 
-                    probs = shot_classifier.predict(sequence, verbose=0)[0]
+                    # background rectangle
+                    cv.rectangle(
+                        frame,
+                        (org[0] - padding, org[1] - text_h - padding),
+                        (org[0] + text_w + padding, org[1] + baseline + padding),
+                        (0, 0, 0),
+                        -1
+                    )
 
-                    # get element
-                    probs = np.asarray(probs).squeeze()
-
-                    # get label and confidence
-                    label = np.argmax(probs)
-                    output_class = LABELS_INV[label]
-
-                    confidence = probs[label] # get confidence
-
-                    # format text
-                    text = f"{output_class}: {(confidence*100):.2f}%"
-
-                    previous_prediction = text # update
-                    last_pred_frame = frame_index  # mark when this prediction occurred
-
-                    frame_buffer = frame_buffer[45:]  # keep only the remaining frames
-
-                if frame_index - last_pred_frame <= 40:
-                    display_text = previous_prediction
-                else:
-                    display_text = "neutral"
-
-                # annotate frame
-                font = cv.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.8        # slightly smaller, cleaner
-                thickness = 2
-                padding = 8             # space around text
-
-                # choose color based on shot type
-                color_map = {
-                    "forehand": (0, 220, 0),
-                    "backhand": (255, 140, 0),
-                    "slice_volley": (0, 200, 200),
-                    "serve_overhead": (200, 0, 200),
-                    "neutral": (180, 180, 180),
-                    "default": (0, 0, 255)
-                }
-                color = color_map.get(output_class, color_map["default"])
-
-                # get text size
-                (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
-
-                # top-left corner coordinates
-                x = padding
-                y = text_h + padding * 2
-
-                # create background rectangle with slight transparency
-                overlay = frame.copy()
-                cv.rectangle(
-                    overlay,
-                    (x - padding, y - text_h - padding),
-                    (x + text_w + padding, y + baseline + padding),
-                    (0, 0, 0),
-                    -1
-                )
-
-                # blend the rectangle with original frame for alpha effect
-                alpha = 0.6
-                cv.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-
-                # draw text on top
-                cv.putText(
-                    frame,
-                    display_text,
-                    (x, y),
-                    font,
-                    font_scale,
-                    color,
-                    thickness,
-                    cv.LINE_AA
-                )
+                    # text
+                    cv.putText(
+                        frame,
+                        display_text,
+                        org,
+                        font,
+                        font_scale,
+                        color,
+                        thickness,
+                        cv.LINE_AA
+                    )
 
 # -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
 
@@ -1131,14 +1231,16 @@ async def main(request: Request, video: UploadFile = File(...)):
             }
                     
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=traceback.format_exc())
 
     except HTTPException:
         raise
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
+    
     finally:
 
         # release resources safely

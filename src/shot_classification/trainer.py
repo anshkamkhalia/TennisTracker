@@ -1,6 +1,6 @@
 # trains and exports a shot classification model
 
-from model import ShotClassifier, Attention, SequenceAttention
+from model import ShotClassifier
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
@@ -119,7 +119,7 @@ shot_classifier = ShotClassifier()
 
 # model checkpoint - saves best model during training
 model_checkpoint = ModelCheckpoint(
-    'serialized_models/shot_classifier_with_gelu.keras',  # file to save weights
+    'serialized_models/new_sc.keras',  # file to save weights
     monitor='val_loss',
     save_best_only=True,
     save_weights_only=False,
@@ -172,6 +172,6 @@ shot_classifier.fit(
     y_train,
     epochs=75,
     callbacks=[reduce_lr, model_checkpoint, early_stopping],
-    batch_size=64,
+    batch_size=32,
     validation_data=(X_test, y_test),
 )

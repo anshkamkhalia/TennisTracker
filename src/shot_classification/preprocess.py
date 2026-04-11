@@ -68,6 +68,76 @@ def augment_keypoints(
 
     return kp
 
+
+def calculate_angle(a, b, c):
+    ba = a - b
+    bc = c - b
+    denom = (np.linalg.norm(ba) * np.linalg.norm(bc)) + 1e-8
+    cosang = np.dot(ba, bc) / denom
+    return np.arccos(np.clip(cosang, -1.0, 1.0))
+
+
+def extract_features(pose_frame, prev_pose_frame):
+    features = []
+
+    left_hip = pose_frame[23]
+    right_hip = pose_frame[24]
+    left_shoulder = pose_frame[11]
+    right_shoulder = pose_frame[12]
+
+    hip_center = (left_hip + right_hip) / 2.0
+    shoulder_center = (left_shoulder + right_shoulder) / 2.0
+
+    torso = np.linalg.norm(shoulder_center - hip_center)
+    torso = torso if torso > 1e-6 else 1.0
+
+    normalized_pose = (pose_frame - hip_center) / torso
+    features.extend(normalized_pose.flatten())
+
+    if prev_pose_frame is None:
+        velocity = np.zeros_like(normalized_pose)
+    else:
+        prev_left_hip = prev_pose_frame[23]
+        prev_right_hip = prev_pose_frame[24]
+        prev_left_shoulder = prev_pose_frame[11]
+        prev_right_shoulder = prev_pose_frame[12]
+
+        prev_hip_center = (prev_left_hip + prev_right_hip) / 2.0
+        prev_shoulder_center = (prev_left_shoulder + prev_right_shoulder) / 2.0
+
+        prev_torso = np.linalg.norm(prev_shoulder_center - prev_hip_center)
+        prev_torso = prev_torso if prev_torso > 1e-6 else 1.0
+
+        prev_normalized_pose = (prev_pose_frame - prev_hip_center) / prev_torso
+        velocity = normalized_pose - prev_normalized_pose
+
+    features.extend(velocity.flatten())
+
+    angle_features = [
+        calculate_angle(normalized_pose[11], normalized_pose[13], normalized_pose[15]),
+        calculate_angle(normalized_pose[12], normalized_pose[14], normalized_pose[16]),
+        calculate_angle(normalized_pose[23], normalized_pose[25], normalized_pose[27]),
+        calculate_angle(normalized_pose[24], normalized_pose[26], normalized_pose[28]),
+        calculate_angle(normalized_pose[13], normalized_pose[11], normalized_pose[23]),
+        calculate_angle(normalized_pose[14], normalized_pose[12], normalized_pose[24]),
+    ]
+
+    features.extend(angle_features)
+
+    right_wrist = normalized_pose[16]
+    left_wrist = normalized_pose[15]
+
+    wrist_features = [
+        right_wrist[0], right_wrist[1], right_wrist[2],
+        left_wrist[0], left_wrist[1], left_wrist[2],
+        np.linalg.norm(velocity[16]),
+        np.linalg.norm(velocity[15]),
+    ]
+
+    features.extend(wrist_features)
+
+    return np.array(features, dtype=np.float32)
+
 # preprocess function
 
 def preprocess(
@@ -127,6 +197,7 @@ def preprocess(
         SEQUENCE_LENGTH = 60  # timesteps for LSTM
 
         sequence_buffer = []  # store frames temporarily
+        prev_pose_frame = None
 
         while True:
             ret, frame = cap.read()
@@ -171,21 +242,36 @@ def preprocess(
                         for i, landmark in enumerate(pose_results.pose_landmarks.landmark):
                             pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
 
-            # flatten to 99 features (zeros if no pose detected)
-            pose_frame = pose_frame.flatten()
-            sequence_buffer.append(pose_frame)
+            pose_features = extract_features(pose_frame, prev_pose_frame)
+            prev_pose_frame = pose_frame.copy()
+
+            sequence_buffer.append(pose_features)
 
             # if we have a full sequence of 33 frames
             if len(sequence_buffer) == SEQUENCE_LENGTH:
-                sequence = np.stack(sequence_buffer)  # shape (33, 99)
+                sequence = np.stack(sequence_buffer)
                 X_train_local.append(sequence)
                 if shot_type is not None:
                     y_train_local.append(LABELS[shot_type])
 
                 # augmentation for the sequence
                 for _ in range(n_copies):
-                    augmented_sequence = np.array([augment_keypoints(f.reshape(NUM_LANDMARKS,3)).flatten() for f in sequence])
-                    X_train_local.append(augmented_sequence)
+                    augmented_sequence = []
+                    for f in sequence:
+                        split_idx_1 = 99
+                        split_idx_2 = 198
+                        pose_part = f[:split_idx_1].reshape(NUM_LANDMARKS, 3)
+                        vel_part = f[split_idx_1:split_idx_2].reshape(NUM_LANDMARKS, 3)
+                        rest = f[split_idx_2:]
+
+                        aug_pose = augment_keypoints(pose_part).flatten()
+                        aug_vel = augment_keypoints(vel_part).flatten()
+
+                        augmented_sequence.append(
+                            np.concatenate([aug_pose, aug_vel, rest], axis=0)
+                        )
+
+                    X_train_local.append(np.array(augmented_sequence, dtype=np.float32))
                     if shot_type is not None:
                         y_train_local.append(LABELS[shot_type])
 
@@ -225,6 +311,9 @@ def preprocess(
 
 # utilize functions to preprocess data 
 # wrap in main() to prevent bootstrapping
+
+# NEW SHAPE IS (60, 212)
+
 def main():
     shots = ["forehand", "backhand", "slice_volley", "serve_overhead"]
 

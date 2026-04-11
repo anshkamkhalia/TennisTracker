@@ -1,7 +1,7 @@
 # tests the model on actual videos
 
 from tensorflow.keras.saving import load_model                            # load serialized model
-from model import Attention, ShotClassifier, SequenceAttention            # custom classes
+from model import ShotClassifier            # custom classes
 from neutral_model import Attention, NeutralIdentifier                    # more custom classes
 import mediapipe as mp                                                    # keypoint extraction
 import cv2 as cv                                                          # video handling
@@ -20,21 +20,90 @@ LABELS = {
 
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
+def calculate_angle(a, b, c):
+    ba = a - b
+    bc = c - b
+    denom = (np.linalg.norm(ba) * np.linalg.norm(bc)) + 1e-8
+    cosang = np.dot(ba, bc) / denom
+    return np.arccos(np.clip(cosang, -1.0, 1.0))
+
+
+def extract_features(pose_frame, prev_pose_frame):
+    features = []
+
+    left_hip = pose_frame[23]
+    right_hip = pose_frame[24]
+    left_shoulder = pose_frame[11]
+    right_shoulder = pose_frame[12]
+
+    hip_center = (left_hip + right_hip) / 2.0
+    shoulder_center = (left_shoulder + right_shoulder) / 2.0
+
+    torso = np.linalg.norm(shoulder_center - hip_center)
+    torso = torso if torso > 1e-6 else 1.0
+
+    normalized_pose = (pose_frame - hip_center) / torso
+    features.extend(normalized_pose.flatten())
+
+    if prev_pose_frame is None:
+        velocity = np.zeros_like(normalized_pose)
+    else:
+        prev_left_hip = prev_pose_frame[23]
+        prev_right_hip = prev_pose_frame[24]
+        prev_left_shoulder = prev_pose_frame[11]
+        prev_right_shoulder = prev_pose_frame[12]
+
+        prev_hip_center = (prev_left_hip + prev_right_hip) / 2.0
+        prev_shoulder_center = (prev_left_shoulder + prev_right_shoulder) / 2.0
+
+        prev_torso = np.linalg.norm(prev_shoulder_center - prev_hip_center)
+        prev_torso = prev_torso if prev_torso > 1e-6 else 1.0
+
+        prev_normalized_pose = (prev_pose_frame - prev_hip_center) / prev_torso
+        velocity = normalized_pose - prev_normalized_pose
+
+    features.extend(velocity.flatten())
+
+    angle_features = [
+        calculate_angle(normalized_pose[11], normalized_pose[13], normalized_pose[15]),
+        calculate_angle(normalized_pose[12], normalized_pose[14], normalized_pose[16]),
+        calculate_angle(normalized_pose[23], normalized_pose[25], normalized_pose[27]),
+        calculate_angle(normalized_pose[24], normalized_pose[26], normalized_pose[28]),
+        calculate_angle(normalized_pose[13], normalized_pose[11], normalized_pose[23]),
+        calculate_angle(normalized_pose[14], normalized_pose[12], normalized_pose[24]),
+    ]
+
+    features.extend(angle_features)
+
+    right_wrist = normalized_pose[16]
+    left_wrist = normalized_pose[15]
+
+    wrist_features = [
+        right_wrist[0], right_wrist[1], right_wrist[2],
+        left_wrist[0], left_wrist[1], left_wrist[2],
+        np.linalg.norm(velocity[16]),
+        np.linalg.norm(velocity[15]),
+    ]
+
+    features.extend(wrist_features)
+
+    return np.array(features, dtype=np.float32)
+
 # paths
-shot_model_path = "serialized_models/shot_classifier_with_gelu.keras"
+shot_model_path = "serialized_models/new_sc.keras"
 neutral_model_path = "serialized_models/neutrality.keras"
-video_path = f"data/court-level-videos/videoplayback{i}.mp4"
+video_path = f"api/videoplayback5.mp4"
 
 # load models
 shot_classifier = load_model(shot_model_path, custom_objects={
     "ShotClassifier": ShotClassifier,
-    "Attention": Attention,
-    "SequenceAttention": SequenceAttention,
+    # "Attention": Attention,
+    # "SequenceAttention": SequenceAttention,
 })
 
 neutral_identifier = load_model(neutral_model_path, custom_objects={
     "NeutralIdentifier": NeutralIdentifier,
-    "Attention": Attention,
+
 })
 
 # yolo instance
@@ -68,7 +137,8 @@ out = cv.VideoWriter(
 )
 
 # config variables
-frame_buffer = [] # will fill up to 180 frames
+frame_buffer = []
+prev_pose_frame = None
 base_alpha = 0.85 # for smoothing
 previous_prediction = "neutral" # to save the last prediction
 frame_index = 0 # to keep track of current frame
@@ -145,18 +215,17 @@ while True:
     stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
 
     results = pose.process(stroke) # process with mediapipe
+    landmarks = results.pose_landmarks.landmark
 
-    if results.pose_landmarks: # check if pose was detected
+    pose_frame = np.zeros((33, 3), dtype=np.float32)
 
-        landmarks = results.pose_landmarks.landmark
+    for i, landmark in enumerate(landmarks):
+        pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
 
-        pose_frame = [] # to store landmarks that form a full pose
+    feat = extract_features(pose_frame, prev_pose_frame)
+    prev_pose_frame = pose_frame.copy()
 
-        for landmark in landmarks: # iterate and extract
-            pose_frame.append(np.array([landmark.x, landmark.y, landmark.z])) # store landmarks to form a full pose
-
-        pose_frame = np.array(pose_frame, dtype=np.float32)  # minimal fix: keep (33,3) shape
-        frame_buffer.append(pose_frame)
+    frame_buffer.append(feat)
 
     if len(frame_buffer) > 0:
         inference_neutral_pose_frame = pose_frame[np.newaxis, :, :, np.newaxis]  # minimal fix: shape (1,33,3,1)
@@ -165,24 +234,23 @@ while True:
     else:
         state = 0
 
-    if len(frame_buffer) >= seq_len and state == 1:  # buffer has reached seq_len and state is swinging
-        # flatten each frame: (33,3) -> (99,)
-        sequence = np.array([f.flatten() for f in frame_buffer[-seq_len:]], dtype=np.float32)  # shape (75,99)
-        sequence = sequence[np.newaxis, ...]  # add batch dimension -> (1,75,99)
-        probs = shot_classifier.predict(sequence, verbose=0)[0]  # now works with LSTM
+    if len(frame_buffer) >= seq_len and state == 1:
 
-        # get label and confidence
+        sequence = np.array(frame_buffer[-seq_len:], dtype=np.float32)
+        sequence = sequence[np.newaxis, ...]
+
+        probs = shot_classifier.predict(sequence, verbose=0)[0]
+
         label = np.argmax(probs)
         output_class = LABELS_INV[label]
         confidence = probs[label]
 
-        # format text
         text = f"{output_class}: {(confidence*100):.2f}%"
 
-        previous_prediction = text # update
-        last_pred_frame = frame_index  # mark when this prediction occurred
+        previous_prediction = text
+        last_pred_frame = frame_index
 
-        frame_buffer = frame_buffer[30:]  # keep only the remaining frames
+        frame_buffer = frame_buffer[30:]
 
     if frame_index - last_pred_frame <= 40:
         display_text = previous_prediction
