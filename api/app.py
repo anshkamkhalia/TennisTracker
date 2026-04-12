@@ -39,13 +39,14 @@ from dotenv import load_dotenv # secure credential storage
 import datetime
 from botocore.exceptions import ClientError # more exceptions
 import subprocess # running commands like ffmpeg
-import time # fake stub delay
+import time as t # frame -> audio sync
 import gc # garbage collection
 from scipy.signal import savgol_filter # savitzky-golay filter
 from tqdm import tqdm
-import traceback
-import matplotlib.pyplot as plt
-import random
+import traceback # debug
+import matplotlib.pyplot as plt # graphs
+import random # just random ig
+import librosa # for audio reading
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -178,10 +179,12 @@ def allowed_file(filename):
     return "." in filename and ext in ALLOWED_EXTENSIONS
 
 def upload_to_r2(local_path, r2_key):
+    
     """
     uploads a local file to the r2 bucket.
     returns the url or raises an HTTPException.
     """
+
     try:
         s3.upload_file(local_path, R2_BUCKET, r2_key) # upload file
         public_url = f"{R2_PUBLIC_URL}/{r2_key}"
@@ -199,6 +202,7 @@ def upload_to_r2(local_path, r2_key):
         raise HTTPException(status_code=500, detail=msg)
 
 def generate_signed_url(r2_key, expiration_seconds=3600):
+
     """generates a signed URL valid for expiration_seconds"""
 
     # generate signed url for privacy
@@ -210,6 +214,9 @@ def generate_signed_url(r2_key, expiration_seconds=3600):
     return url
 
 def smooth_velocity(buffer, dt, window=5):
+
+    """smooths velocity over a window"""
+
     if len(buffer) < window:
         return 0.0
     
@@ -222,6 +229,9 @@ def smooth_velocity(buffer, dt, window=5):
     return np.mean(velocities)
 
 def safe_append(buffer, new_point, max_jump=100):
+
+    """safely append without massive jumps"""
+
     if len(buffer) > 0:
         if np.linalg.norm(new_point - buffer[-1]) > max_jump:
             return
@@ -229,6 +239,9 @@ def safe_append(buffer, new_point, max_jump=100):
 
 # keypoint feature extraction functions
 def calculate_angle(a, b, c):
+    
+    """calculates the angle between a,b,c"""
+
     ba = a - b
     bc = c - b
     denom = (np.linalg.norm(ba) * np.linalg.norm(bc)) + 1e-8
@@ -237,6 +250,9 @@ def calculate_angle(a, b, c):
 
 
 def extract_features(pose_frame, prev_pose_frame):
+
+    """extracts extra shot classification features from poses"""
+
     features = []
 
     left_hip = pose_frame[23]
@@ -296,6 +312,21 @@ def extract_features(pose_frame, prev_pose_frame):
     features.extend(wrist_features)
 
     return np.array(features, dtype=np.float32)
+
+def get_audio_at_frame(frame_idx, audio, fps=60, sr=16000):
+
+    """gets the audio for a specific frame"""
+
+    time = frame_idx / fps
+    sample_idx = int(time * sr)
+
+    # small window (e.g. 50 ms)
+    window = int(0.05 * sr)
+
+    start = max(0, sample_idx - window // 2)
+    end = min(len(audio), sample_idx + window // 2)
+
+    return audio[start:end]
 
 # @app.before_request
 # def handle_preflight():
@@ -505,6 +536,34 @@ async def main(request: Request, video: UploadFile = File(...)):
         (center_x, my + mh - service_offset), line_color, thick)
 
         print("request recieved, beginning video processing") # beginning message
+
+        audio_path = "api/temp_videos/audio.wav"
+        video_path = input_path
+
+        if not os.path.exists(audio_path):
+            subprocess.run([
+                "ffmpeg",
+                "-i", video_path,
+                "-vn",              
+                "-acodec", "pcm_s16le",
+                "-ar", "16000",     
+                "-ac", "1", "-y",
+                audio_path
+            ], check=True)
+
+        fps = input_fps
+
+        audio, sr = librosa.load(audio_path, sr=16_000) # load .wav audio with librosa
+        time = np.arange(len(audio)) / sr
+
+        # sound based contact configs
+        n_contacts = 0
+        hit = False
+        MIN_ENERGY = 0.04
+        CONTACT_DISPLAY_FRAMES = int(1.0 * fps)  # 1 second
+        last_display_hit_frame = -CONTACT_DISPLAY_FRAMES
+        COOLDOWN_FRAMES = int(0.3 * fps)
+        last_hit_frame = -COOLDOWN_FRAMES
         
 # -------------------------------------------------------------------------------- main loop --------------------------------------------------------------------------------
 
@@ -627,6 +686,72 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 # cv.polylines expects shape (num_points, 1, 2)
                 pts = pts.reshape((-1, 1, 2))
+
+# -------------------------------------------------------------------------------- contact detection --------------------------------------------------------------------------------
+            
+            if view_type == "court":
+                
+                current_audio = get_audio_at_frame(frame_index, audio)
+                energy = np.sqrt(np.mean(current_audio**2)) # get RMS energy for audio sample
+
+                hit = False
+
+                if energy >= MIN_ENERGY and frame_index - last_hit_frame > COOLDOWN_FRAMES:
+                    hit = True
+                    n_contacts += 1
+                    last_hit_frame = frame_index
+                    last_display_hit_frame = frame_index
+
+                # show "CONTACT DETECTED" for 1 second after a hit
+                show_contact = (frame_index - last_display_hit_frame) < CONTACT_DISPLAY_FRAMES
+
+                if show_contact:
+                    label = "CONTACT DETECTED"
+                    text_color = (0, 255, 0)       
+                    bg_color = (0, 60, 0)          
+
+                    # measure text size for background rectangle
+                    font = cv.FONT_HERSHEY_SIMPLEX
+                    font_scale = 1.2
+                    thickness = 2
+                    (text_w, text_h), baseline = cv.getTextSize(label, font, font_scale, thickness)
+
+                    pad = 12
+                    x, y = 50, 300
+                    # draw filled background rectangle
+                    cv.rectangle(frame,
+                                (x - pad, y - text_h - pad),
+                                (x + text_w + pad, y + baseline + pad),
+                                bg_color, -1)
+                    # draw a bright green border
+                    cv.rectangle(frame,
+                                (x - pad, y - text_h - pad),
+                                (x + text_w + pad, y + baseline + pad),
+                                text_color, 2)
+                    # draw text
+                    cv.putText(frame, label, (x, y), font, font_scale, text_color, thickness)
+
+                else:
+                    label = "waiting"
+                    font = cv.FONT_HERSHEY_SIMPLEX
+                    font_scale = 1.2
+                    thickness = 2
+                    text_color = (160, 160, 160) # gray text
+                    bg_color = (40, 40, 40) # dark gray background
+
+                    (text_w, text_h), baseline = cv.getTextSize(label, font, font_scale, thickness)
+
+                    pad = 12
+                    x, y = 50, 300
+                    cv.rectangle(frame,
+                                (x - pad, y - text_h - pad),
+                                (x + text_w + pad, y + baseline + pad),
+                                bg_color, -1)
+                    cv.rectangle(frame,
+                                (x - pad, y - text_h - pad),
+                                (x + text_w + pad, y + baseline + pad),
+                                text_color, 2)
+                    cv.putText(frame, label, (x, y), font, font_scale, text_color, thickness)
 
 # -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
             
@@ -1284,6 +1409,8 @@ async def main(request: Request, video: UploadFile = File(...)):
             public_url = f"{R2_PUBLIC_URL}/{r2_key}"
             print(f"\n\nurl: {public_url}\n\n")
 
+            print(f"\nn_shots: {n_contacts}\n")
+
             return { 
                 "message": "video processed successfully",
                 "url": public_url,
@@ -1291,6 +1418,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                 "right_wrist_v": r_w_velocities,
                 "left_wrist_v": l_w_velocities,
                 "ball_speeds": velocities,
+                "n_shots": n_contacts
             }
                     
         except Exception as e:
