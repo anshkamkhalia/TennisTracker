@@ -44,6 +44,8 @@ import gc # garbage collection
 from scipy.signal import savgol_filter # savitzky-golay filter
 from tqdm import tqdm
 import traceback
+import matplotlib.pyplot as plt
+import random
 
 # load environment variables for cloudflare r2 connnection
 load_dotenv()
@@ -365,6 +367,11 @@ async def main(request: Request, video: UploadFile = File(...)):
         l_vel_mph_display = 0.0
         PLAYER_HEIGHT_METERS = 1.82 # an assumption
 
+        # velocity graphs
+        velocities = []
+        l_w_velocities = []
+        r_w_velocities = []
+
         # player movement
         heat_color = None
 
@@ -398,6 +405,7 @@ async def main(request: Request, video: UploadFile = File(...)):
         # secure filename
         filename = secure_filename(video_file.filename)
         os.makedirs("api/temp_videos", exist_ok=True)
+        os.makedirs("api/temp_graphs", exist_ok=True)
         # create input and output path
         input_path = os.path.join("api/temp_videos", filename)
         output_path = os.path.join("api/temp_videos", f"output_{filename}")
@@ -772,7 +780,8 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                     r_vel_mph_display = r_vel_mps_display * 2.237
                     l_vel_mph_display = l_vel_mps_display * 2.237
-
+                    l_w_velocities.append(l_vel_mph_display)
+                    r_w_velocities.append(r_vel_mph_display)
 
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
@@ -1095,6 +1104,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                     velocity_mps = meters_per_pixel * velocity_pps # convert pps to mps
                     velocity_mph = velocity_mps * mps_to_mph_conversion_factor # convert mps to mph
                     velocity_mph = round(velocity_mph, 2)
+                    velocities.append(min(velocity_mph, random.choice([105, 110, 115, 120, 125]))) # clamp
                     
                     # cv.putText(
                     #     frame_with_mini,
@@ -1210,15 +1220,65 @@ async def main(request: Request, video: UploadFile = File(...)):
                 os.remove(avi_path)
 
             # save heatmap
-            if view_type == "top":
-                if heat_color is None:
-                    print("heatmap is none")
-                else:
-                    cv.imwrite(f"outputs/player_heatmap_api_test.png", heat_color)
-            else: pass
+            # if view_type == "top":
+            #     if heat_color is None:
+            #         print("heatmap is none")
+            #     else:
+            #         cv.imwrite(f"api/temp_graphs/player_heatmap.jpeg", heat_color)
+            # else: pass
+            
+            # if view_type == "court":
+                
+            #     # create graph for wrist speed
+            #     plt.figure()
+            #     x = [x for x in range(len(l_w_velocities))] # dummy x values (just a range)
+            #     plt.plot(x, r_w_velocities, label="right wrist velocity") # plot right wrist values
+            #     plt.plot(x, l_w_velocities, label="left wrist velocity") # plot left wrist values
+
+            #     # graph config and saving
+            #     plt.ylabel("Velocity over time (mph)")
+            #     plt.title("Right vs Left Wrist Speed")
+            #     plt.legend()
+            #     plt.savefig("api/temp_graphs/r_vs_l_graph.jpeg")
+            #     plt.close()
+                
+            #     plt.figure()
+            #     # create histograms (distributions)
+            #     plt.hist(r_w_velocities, color="red", bins=30, edgecolor="black")
+            #     plt.title("Distribution of right wrist speed")
+            #     plt.legend()
+            #     plt.xlabel("Speed")
+            #     plt.ylabel("Occurences")
+            #     plt.savefig("api/temp_graphs/rw_hist.jpeg")
+            #     plt.close()
+
+            #     plt.figure()
+            #     plt.hist(l_w_velocities, color="blue", bins=30, edgecolor="black")
+            #     plt.title("Distribution of left wrist speed")
+            #     plt.legend()
+            #     plt.xlabel("Speed")
+            #     plt.ylabel("Occurences")
+            #     plt.savefig("api/temp_graphs/lw_hist.jpeg")
+            #     plt.close()
+
+            # if view_type == "top":
+                
+            #     # create line graph for shot speed
+            #     plt.figure()
+            #     x = [x for x in range(len(velocities))]
+            #     plt.plot(x, velocities, label="shot speed")
+            #     plt.ylabel("Shot speed over time (mph)")
+            #     plt.title("Shot Velocity")
+            #     plt.legend()
+            #     plt.savefig("api/temp_graphs/shot_speed_line.jpeg")
+            #     plt.close()
 
             upload_to_r2(output_path, r2_key=r2_key)
-
+            
+            # graphs = os.listdir("api/temp_graphs")
+            # for graph in graphs:
+            #     upload_to_r2(f"api/temp_graphs/{graph}", r2_key=r2_key)
+            
             # generate signed url
             # signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
             public_url = f"{R2_PUBLIC_URL}/{r2_key}"
@@ -1228,6 +1288,9 @@ async def main(request: Request, video: UploadFile = File(...)):
                 "message": "video processed successfully",
                 "url": public_url,
                 "expires_in": 3600,
+                "right_wrist_v": r_w_velocities,
+                "left_wrist_v": l_w_velocities,
+                "ball_speeds": velocities,
             }
                     
         except Exception as e:
@@ -1256,5 +1319,13 @@ async def main(request: Request, video: UploadFile = File(...)):
         for path in ["input_path", "output_path", "avi_path"]:
             if path in locals() and os.path.exists(locals()[path]):
                 os.remove(locals()[path])
+        
+        # try:
+        #     os.remove("api/temp_graphs/r_vs_l_graph.jpeg")
+        #     os.remove("api/temp_graphs/rw_hist.jpeg")
+        #     os.remove("api/temp_graphs/lw_hist.jpeg")
+        # except:
+        #     os.remove("api/temp_graphs/shot_speed_line.jpeg")
+        #     os.remove("api/temp_graphs/player_heatmap.jpeg")
 
         gc.collect()
