@@ -1456,4 +1456,6 @@ async def main(request: Request, video: UploadFile = File(...)):
         #     os.remove("api/temp_graphs/shot_speed_line.jpeg")
         #     os.remove("api/temp_graphs/player_heatmap.jpeg")
 
+        os.remove("api/temp_videos/audio.wav") # delete wav file
+
         gc.collect()
