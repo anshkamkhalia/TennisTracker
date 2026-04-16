@@ -135,7 +135,6 @@ export default function Record() {
       <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #1A3263, #2a4a8a)" }}>
         <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-4">Recording Tips</p>
         {[
-          "Position camera at a high angle for best results",
           "Ensure good lighting — avoid harsh shadows",
           "Record full rallies, not just isolated shots",
           "At least 30 seconds gives better AI analysis",

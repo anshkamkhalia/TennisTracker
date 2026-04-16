@@ -1459,3 +1459,4 @@ async def main(request: Request, video: UploadFile = File(...)):
         os.remove("api/temp_videos/audio.wav") # delete wav file
 
         gc.collect()
+
