@@ -57,6 +57,18 @@ videos = sorted([
     if not f.startswith(".")
 ])
 
+feature_names = [
+    "audio_rms", "audio_zcr", "audio_centroid",
+    "wrist_x", "wrist_y",
+    "elbow_x", "elbow_y",
+    "elbow_angle",
+    "wrist_speed", "elbow_speed",
+    "ball_x", "ball_y",
+    "ball_vx", "ball_vy",
+    "ball_speed", "ball_accel",
+    "wrist_ball_dist", "elbow_ball_dist"
+]
+
 for video in videos:
 
     X_curr, y_curr = [], []
@@ -98,9 +110,6 @@ for video in videos:
     # each slot is either a real features dict or None (zero-padded later).
     frame_buffer = deque(maxlen=BUFFER_SIZE)
 
-    # we need a consistent feature key order; determined after first valid frame
-    feature_names = None
-
     def make_sequence(buf, names):
         rows = []
 
@@ -122,7 +131,7 @@ for video in videos:
             if not ret:
                 break
 
-            features = {}
+            features = dict.fromkeys(feature_names, 0.0)
 
             current_audio = get_audio_at_frame(audio, frame_index)
 
@@ -289,11 +298,7 @@ for video in videos:
 
             # push this frame's features into the rolling buffer
             frame_buffer.append(features)
-
-            # lock in the feature key order on the first complete frame
-            if feature_names is None:
-                feature_names = sorted(features.keys())
-
+            
             # sampling decision (same logic as before, based on current frame)
             keep_frame = hit
 

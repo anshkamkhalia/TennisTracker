@@ -18,7 +18,7 @@ class TransformerBlock(layers.Layer):
 
         self.attn = layers.MultiHeadAttention(
             num_heads=num_heads,
-            key_dim=d_model
+            key_dim=d_model,
         )
 
         self.ffn = tf.keras.Sequential([
@@ -32,12 +32,15 @@ class TransformerBlock(layers.Layer):
         self.dropout1 = layers.Dropout(dropout)
         self.dropout2 = layers.Dropout(dropout)
 
-    def call(self, x, training=False, mask=None):
+    # def compute_mask(self, inputs, mask=None):
+    #     return mask
+
+    def call(self, x, training=False):
         attn_out = self.attn(
             query=x,
             value=x,
             key=x,
-            attention_mask=mask
+            training=training
         )
 
         attn_out = self.dropout1(attn_out, training=training)
@@ -53,7 +56,7 @@ class ContactTransformer(tf.keras.Model):
     def __init__(
         self,
         seq_len=15,
-        num_features=10,
+        num_features=18,
         d_model=64,
         num_heads=4,
         ff_dim=128,
@@ -83,17 +86,12 @@ class ContactTransformer(tf.keras.Model):
     def call(self, x, training=False):
         seq_mask = tf.reduce_any(tf.not_equal(x, 0.0), axis=-1)
 
-        attn_mask = tf.cast(
-            seq_mask[:, tf.newaxis, tf.newaxis, :],
-            tf.int32
-        )
-
         x = self.input_proj(x)
 
         x = self.pos_encoding(x)
 
         for block in self.transformer_blocks:
-            x = block(x, training=training, mask=attn_mask)
+            x = block(x, training=training)
 
         x = self.pool(x, mask=seq_mask)
 
