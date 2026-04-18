@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 
-video_path = "api/videoplayback6.mp4"
+video_path = "api/videoplayback10.mp4"
 audio_path = "src/rally_segmentation/audio.wav"
 
 graph = sys.argv[1]

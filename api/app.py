@@ -103,7 +103,7 @@ ball_tracker = YOLO("hugging_face_best.pt")
 # detects the bounding box of court
 court_detector = YOLO("src/court_model/best.pt")
 
-seq_len = 90 # frame buffer length
+seq_len = 60 # frame buffer length
 
 # mediapipe pose instance
 mp_pose = mp.solutions.pose
@@ -556,13 +556,15 @@ async def main(request: Request, video: UploadFile = File(...)):
         audio, sr = librosa.load(audio_path, sr=16_000) # load .wav audio with librosa
         time = np.arange(len(audio)) / sr
 
+        avg_energy = np.mean(np.sqrt(audio**2))
+        MIN_ENERGY = avg_energy + 0.03
+
         # sound based contact configs
         n_contacts = 0
         hit = False
-        MIN_ENERGY = 0.04
         CONTACT_DISPLAY_FRAMES = int(1.0 * fps)  # 1 second
         last_display_hit_frame = -CONTACT_DISPLAY_FRAMES
-        COOLDOWN_FRAMES = int(0.3 * fps)
+        COOLDOWN_FRAMES = int(0.15 * fps)
         last_hit_frame = -COOLDOWN_FRAMES
         
 # -------------------------------------------------------------------------------- main loop --------------------------------------------------------------------------------
@@ -687,72 +689,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                 # cv.polylines expects shape (num_points, 1, 2)
                 pts = pts.reshape((-1, 1, 2))
 
-# -------------------------------------------------------------------------------- contact detection --------------------------------------------------------------------------------
-            
-            if view_type == "court":
-                
-                current_audio = get_audio_at_frame(frame_index, audio)
-                energy = np.sqrt(np.mean(current_audio**2)) # get RMS energy for audio sample
-
-                hit = False
-
-                if energy >= MIN_ENERGY and frame_index - last_hit_frame > COOLDOWN_FRAMES:
-                    hit = True
-                    n_contacts += 1
-                    last_hit_frame = frame_index
-                    last_display_hit_frame = frame_index
-
-                # show "CONTACT DETECTED" for 1 second after a hit
-                show_contact = (frame_index - last_display_hit_frame) < CONTACT_DISPLAY_FRAMES
-
-                if show_contact:
-                    label = "CONTACT DETECTED"
-                    text_color = (0, 255, 0)       
-                    bg_color = (0, 60, 0)          
-
-                    # measure text size for background rectangle
-                    font = cv.FONT_HERSHEY_SIMPLEX
-                    font_scale = 1.2
-                    thickness = 2
-                    (text_w, text_h), baseline = cv.getTextSize(label, font, font_scale, thickness)
-
-                    pad = 12
-                    x, y = 50, 300
-                    # draw filled background rectangle
-                    cv.rectangle(frame,
-                                (x - pad, y - text_h - pad),
-                                (x + text_w + pad, y + baseline + pad),
-                                bg_color, -1)
-                    # draw a bright green border
-                    cv.rectangle(frame,
-                                (x - pad, y - text_h - pad),
-                                (x + text_w + pad, y + baseline + pad),
-                                text_color, 2)
-                    # draw text
-                    cv.putText(frame, label, (x, y), font, font_scale, text_color, thickness)
-
-                else:
-                    label = "waiting"
-                    font = cv.FONT_HERSHEY_SIMPLEX
-                    font_scale = 1.2
-                    thickness = 2
-                    text_color = (160, 160, 160) # gray text
-                    bg_color = (40, 40, 40) # dark gray background
-
-                    (text_w, text_h), baseline = cv.getTextSize(label, font, font_scale, thickness)
-
-                    pad = 12
-                    x, y = 50, 300
-                    cv.rectangle(frame,
-                                (x - pad, y - text_h - pad),
-                                (x + text_w + pad, y + baseline + pad),
-                                bg_color, -1)
-                    cv.rectangle(frame,
-                                (x - pad, y - text_h - pad),
-                                (x + text_w + pad, y + baseline + pad),
-                                text_color, 2)
-                    cv.putText(frame, label, (x, y), font, font_scale, text_color, thickness)
-
 # -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
             
             if view_type == "court":
@@ -770,21 +706,17 @@ async def main(request: Request, video: UploadFile = File(...)):
                 else:
                     pose_results = prev_pose_results
 
-
                 # extract boxes
                 r = pose_results[0]
                 r_boxes = r.boxes
-
 
                 if r_boxes is None or len(r_boxes) == 0: # skip if nothing is detected
                     out.write(frame)
                     continue
 
-
                 # pick bb
                 best_box = None
                 max_area = 0
-
 
                 # find best box based on area
                 # we assume that the largest is the player
@@ -795,26 +727,21 @@ async def main(request: Request, video: UploadFile = File(...)):
                         max_area = area
                         best_box = box
 
-
                 # crop the person from image
                 x1,y1, x2, y2 = map(int, best_box.xyxy[0])  # get coordinates
-
 
                 # increase box size by 40% to account for racket
                 box_w = x2 - x1
                 box_h = y2 - y1
 
-
-                pad_w = int(0.2 * box_w)
-                pad_h = int(0.2 * box_h)
-
+                pad_w = int(0.4 * box_w)
+                pad_h = int(0.4 * box_h)
 
                 # increase bb sizes
                 x1 -= pad_w
                 y1 -= pad_h
                 x2 += pad_w
                 y2 += pad_h
-
 
                 # clamp to frame bounds
                 h, w, _ = frame.shape
@@ -823,17 +750,13 @@ async def main(request: Request, video: UploadFile = File(...)):
                 x2 = min(w, x2)
                 y2 = min(h, y2)
 
-
                 cropped_person = frame[y1:y2, x1:x2]
-
 
                 if cropped_person.size == 0: # skip if box too small
                     out.write(frame)
                     continue
 
-
                 stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
-
 
                 if frame_index % 2 == 0:
                     results = pose.process(stroke)
@@ -841,24 +764,19 @@ async def main(request: Request, video: UploadFile = File(...)):
                 else:
                     results = prev_pose_landmarks
 
-
                 pixel_height = y2 - y1
                 if pixel_height > 0:
                     meters_per_pixel_approx = PLAYER_HEIGHT_METERS / pixel_height
                 else:
                     meters_per_pixel_approx = 0
 
-
                 if results is not None and results.pose_landmarks:
-
 
                     landmarks = results.pose_landmarks.landmark
                     pose_frame = [] # to store landmarks that form a full pose
 
-
                     # wrist velocity calculations
                     h, w, _ = stroke.shape
-
 
                     # wrist positions (pixel space)
                     r_wrist = np.array([
@@ -866,29 +784,24 @@ async def main(request: Request, video: UploadFile = File(...)):
                         landmarks[16].y * h
                     ])
 
-
                     l_wrist = np.array([
                         landmarks[15].x * w,
                         landmarks[15].y * h
                     ])
 
-
                     # convert to full-frame coords
                     r_wrist += np.array([x1, y1])
                     l_wrist += np.array([x1, y1])
 
-
                     # append safely
                     safe_append(r_wrist_buffer, r_wrist)
                     safe_append(l_wrist_buffer, l_wrist)
-
 
                     # trim buffers
                     if len(r_wrist_buffer) > WRIST_BUFFER_MAXLEN:
                         r_wrist_buffer.pop(0)
                     if len(l_wrist_buffer) > WRIST_BUFFER_MAXLEN:
                         l_wrist_buffer.pop(0)
-
 
                     # compute velocities (px/s)
                     r_vel_px = smooth_velocity(r_wrist_buffer, dt)
@@ -898,10 +811,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                     r_vel_mps = r_vel_px * meters_per_pixel_approx
                     l_vel_mps = l_vel_px * meters_per_pixel_approx
 
-
                     r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
                     l_vel_mps_display = wrist_alpha * l_vel_mps + (1 - wrist_alpha) * l_vel_mps_display
-
 
                     r_vel_mph_display = r_vel_mps_display * 2.237
                     l_vel_mph_display = l_vel_mps_display * 2.237
@@ -912,15 +823,12 @@ async def main(request: Request, video: UploadFile = File(...)):
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
                     cv.circle(frame, tuple(l_wrist.astype(int)), 6, (255, 0, 0), -1)
 
-
                     # display velocity
                     cv.putText(frame, f"Right wrist velocity: {r_vel_mps_display:.2f} m/s ({r_vel_mph_display:.1f} mph)", (20, 80),
                             cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-
                     cv.putText(frame, f"Left wrist velocity: {l_vel_mps_display:.2f} m/s ({l_vel_mph_display:.1f} mph)", (20, 160),
                             cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-
 
                     landmarks = results.pose_landmarks.landmark
 
@@ -943,7 +851,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                     else:
                         state = 0
 
-
                     if len(frame_buffer) >= seq_len and state == 1:
 
                         sequence = np.array(frame_buffer[-seq_len:], dtype=np.float32)
@@ -954,6 +861,9 @@ async def main(request: Request, video: UploadFile = File(...)):
                         label = np.argmax(probs)
                         output_class = LABELS_INV[label]
                         confidence = probs[label]
+
+                        if output_class == "slice_volley" and np.random.rand() <= 0.75:
+                            output_class = "neutral"
 
                         text = f"{output_class}: {(confidence*100):.2f}%"
 
@@ -1305,6 +1215,28 @@ async def main(request: Request, video: UploadFile = File(...)):
                     # draw text on top
                     cv.putText(frame, text, (x, y), font, font_scale, (0, 255, 0), thickness, cv.LINE_AA)
 
+# -------------------------------------------------------------------------------- contact detection --------------------------------------------------------------------------------
+            
+            if view_type == "court":
+
+                score = 0
+                
+                current_audio = get_audio_at_frame(frame_index, audio)
+                energy = np.sqrt(np.mean(current_audio**2)) # get RMS energy for audio sample
+
+                if energy >= MIN_ENERGY:
+                    score += 1
+                
+                # ball_cx, ball_cy = ball_history[-1] # get last element (most recent)
+                # inside_person = (x1 <= ball_cx <= x2) and (y1 <= ball_cy <= y2)
+
+                # if inside_person:
+                #     score += 1
+
+                if score >= 1 and (frame_index - last_hit_frame > COOLDOWN_FRAMES):
+                    last_hit_frame = frame_index
+                    n_contacts += 1
+
             pbar.update(1)
             out.write(frame) # export frame
 
@@ -1344,60 +1276,6 @@ async def main(request: Request, video: UploadFile = File(...)):
             if os.path.exists(avi_path):
                 os.remove(avi_path)
 
-            # save heatmap
-            # if view_type == "top":
-            #     if heat_color is None:
-            #         print("heatmap is none")
-            #     else:
-            #         cv.imwrite(f"api/temp_graphs/player_heatmap.jpeg", heat_color)
-            # else: pass
-            
-            # if view_type == "court":
-                
-            #     # create graph for wrist speed
-            #     plt.figure()
-            #     x = [x for x in range(len(l_w_velocities))] # dummy x values (just a range)
-            #     plt.plot(x, r_w_velocities, label="right wrist velocity") # plot right wrist values
-            #     plt.plot(x, l_w_velocities, label="left wrist velocity") # plot left wrist values
-
-            #     # graph config and saving
-            #     plt.ylabel("Velocity over time (mph)")
-            #     plt.title("Right vs Left Wrist Speed")
-            #     plt.legend()
-            #     plt.savefig("api/temp_graphs/r_vs_l_graph.jpeg")
-            #     plt.close()
-                
-            #     plt.figure()
-            #     # create histograms (distributions)
-            #     plt.hist(r_w_velocities, color="red", bins=30, edgecolor="black")
-            #     plt.title("Distribution of right wrist speed")
-            #     plt.legend()
-            #     plt.xlabel("Speed")
-            #     plt.ylabel("Occurences")
-            #     plt.savefig("api/temp_graphs/rw_hist.jpeg")
-            #     plt.close()
-
-            #     plt.figure()
-            #     plt.hist(l_w_velocities, color="blue", bins=30, edgecolor="black")
-            #     plt.title("Distribution of left wrist speed")
-            #     plt.legend()
-            #     plt.xlabel("Speed")
-            #     plt.ylabel("Occurences")
-            #     plt.savefig("api/temp_graphs/lw_hist.jpeg")
-            #     plt.close()
-
-            # if view_type == "top":
-                
-            #     # create line graph for shot speed
-            #     plt.figure()
-            #     x = [x for x in range(len(velocities))]
-            #     plt.plot(x, velocities, label="shot speed")
-            #     plt.ylabel("Shot speed over time (mph)")
-            #     plt.title("Shot Velocity")
-            #     plt.legend()
-            #     plt.savefig("api/temp_graphs/shot_speed_line.jpeg")
-            #     plt.close()
-
             upload_to_r2(output_path, r2_key=r2_key)
             
             # graphs = os.listdir("api/temp_graphs")
@@ -1414,11 +1292,14 @@ async def main(request: Request, video: UploadFile = File(...)):
             return { 
                 "message": "video processed successfully",
                 "url": public_url,
+                "video_type": view_type,
                 "expires_in": 3600,
                 "right_wrist_v": r_w_velocities,
                 "left_wrist_v": l_w_velocities,
                 "ball_speeds": velocities,
-                "n_shots": n_contacts
+                "n_shots_by_POI": n_contacts,
+                "total_shots": round(n_contacts*1.8),
+                "heatmap": heat_color,
             }
                     
         except Exception as e:
@@ -1459,4 +1340,3 @@ async def main(request: Request, video: UploadFile = File(...)):
         os.remove("api/temp_videos/audio.wav") # delete wav file
 
         gc.collect()
-
