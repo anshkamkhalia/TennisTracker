@@ -328,6 +328,16 @@ def get_audio_at_frame(frame_idx, audio, fps=60, sr=16000):
 
     return audio[start:end]
 
+def get_percentage(dict, shot, total):
+    
+    """gets hit percentage for a specifc shot"""
+
+    try:
+        n_shot_oi = dict[shot]
+        return round(((n_shot_oi / total) * 100), 2)
+    except:
+        return 0.0
+
 # @app.before_request
 # def handle_preflight():
 #     if request.method == "OPTIONS":
@@ -343,15 +353,7 @@ def get_audio_at_frame(frame_idx, audio, fps=60, sr=16000):
 @limiter.limit("1/minute")
 async def main(request: Request, video: UploadFile = File(...)):
 
-    # if os.getenv("USE_API_STUBS") == "true": # api stubs for frontend testing
-
-    #     time.sleep(np.random.uniform(1, 3))  # 1–3 seconds, fake loading times and random values
-    #     return {
-    #         "message": "video processed successfully (stub)",
-    #         "url": "https://example.com/fake_output.mp4",
-    #         "n_shots": np.random.randint(30,100),
-    #         "most_common_shot": list(LABELS.keys())[np.random.randint(0,3)]
-    #     }
+    """tuff function"""
 
     # cap <- VideoCapture(), out <- VideoWriter
     # initialize here so no scope errors in finally block
@@ -417,6 +419,15 @@ async def main(request: Request, video: UploadFile = File(...)):
         prev_pose_landmarks = None
         prev_pose_frame = None
         pose_frame = None
+
+        # analytics
+        shot_occurences = {
+            "forehand": 0,
+            "backhand": 0,
+            "slice_volley": 0,
+            "serve_overhead": 0,
+        }
+        total_shots_for_percentages = 0
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
@@ -864,6 +875,10 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                         if output_class == "slice_volley" and np.random.rand() <= 0.75:
                             output_class = "neutral"
+                    
+                        if output_class != "neutral":
+                            shot_occurences[output_class] += 1
+                            total_shots_for_percentages += 1 
 
                         text = f"{output_class}: {(confidence*100):.2f}%"
 
@@ -1226,12 +1241,6 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 if energy >= MIN_ENERGY:
                     score += 1
-                
-                # ball_cx, ball_cy = ball_history[-1] # get last element (most recent)
-                # inside_person = (x1 <= ball_cx <= x2) and (y1 <= ball_cy <= y2)
-
-                # if inside_person:
-                #     score += 1
 
                 if score >= 1 and (frame_index - last_hit_frame > COOLDOWN_FRAMES):
                     last_hit_frame = frame_index
@@ -1289,17 +1298,29 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             print(f"\nn_shots: {n_contacts}\n")
 
+            print(shot_occurences)
+            print(total_shots_for_percentages)
+
             return { 
                 "message": "video processed successfully",
                 "url": public_url,
                 "video_type": view_type,
                 "expires_in": 3600,
+                
+                # court view analytics
                 "right_wrist_v": r_w_velocities,
                 "left_wrist_v": l_w_velocities,
-                "ball_speeds": velocities,
                 "n_shots_by_POI": n_contacts,
                 "total_shots": round(n_contacts*1.8),
+
+                "forehand_percent": get_percentage(shot_occurences, "forehand", total_shots_for_percentages),
+                "backhand_percent": get_percentage(shot_occurences, "backhand", total_shots_for_percentages),
+                "slice_volley_percent": get_percentage(shot_occurences, "slice_volley", total_shots_for_percentages),
+                "serve_overhead_percent": get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages),
+
+                # top view analytics
                 "heatmap": heat_color,
+                "ball_speeds": velocities,
             }
                     
         except Exception as e:
