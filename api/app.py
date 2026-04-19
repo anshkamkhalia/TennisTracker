@@ -201,32 +201,19 @@ def upload_to_r2(local_path, r2_key):
         print(msg)
         raise HTTPException(status_code=500, detail=msg)
 
-def generate_signed_url(r2_key, expiration_seconds=3600):
+def calculate_velocity(buffer, dt):
 
-    """generates a signed URL valid for expiration_seconds"""
-
-    # generate signed url for privacy
-    url = s3.generate_presigned_url(
-        ClientMethod='get_object',
-        Params={'Bucket': R2_BUCKET, 'Key': r2_key},
-        ExpiresIn=expiration_seconds
-    )
-    return url
-
-def smooth_velocity(buffer, dt, window=5):
-
-    """smooths velocity over a window"""
-
-    if len(buffer) < window:
-        return 0.0
+    """calculates velocity"""
     
-    velocities = []
-    for i in range(-window, -1):
-        p1 = buffer[i]
-        p2 = buffer[i + 1]
-        velocities.append(np.linalg.norm(p2 - p1) / dt)
-    
-    return np.mean(velocities)
+    # final and initial are (x,y) coordinates
+    final = buffer[-1]
+    initial = buffer[0]
+
+    # calculate distance
+    dist = np.sqrt((final[0] - initial[0])**2 + (final[1] - initial[1])**2)
+
+    v = dist / dt
+    return v
 
 def safe_append(buffer, new_point, max_jump=100):
 
@@ -338,15 +325,6 @@ def get_percentage(dict, shot, total):
     except:
         return 0.0
 
-# @app.before_request
-# def handle_preflight():
-#     if request.method == "OPTIONS":
-#         response = app.make_response("")
-#         response.headers["Access-Control-Allow-Origin"] = "http://localhost:8081"
-#         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-#         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-#         return response
-
 # -------------------------------------------------------------------------------- main preprocessing function --------------------------------------------------------------------------------
 
 @app.post("/process-video")
@@ -363,71 +341,55 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- configs --------------------------------------------------------------------------------
 
     try:
-        # config variables
-        previous_prediction = "neutral" # to save the last prediction
-        frame_index = 0 # to keep track of current frame
-        last_pred_frame = -999  # initialize far back so no text at start
-        state = None # will be 0 (neutral) or 1 (swinging)
-        output_class = -1 # forehand (0) or backhand (1) or others
-        trail = [] # stores ball trail
-        MAX_TRAIL_LENGTH = 40
-        coordinates = [] # stores ball locations
-        ball_history = [] # for savitzky–golay filter
-        BALL_SMOOTH_WINDOW = 5
-        BALL_POLY_ORDER = 2 # polynomial order for savitzky-golay, adjust as needed
-        view_type = None # either "top" or "court"
-        view_type_determined = False
-        pbar = None
-
-        # pixel to meters for ball speed
-        meters_per_pixel = None
-        court_baseline_length_meters = 23.77
-        court_box_updated = False
-        speed_buffer = []
-        speed_buffer_size = 50 # ~1 second (will reset after fps is known)
-        mps_to_mph_conversion_factor = 2.2369363 # conversion rate from mps to mph
-        prev_velocity = None
-        last_ball_px = None
-
-        # wrist velocity
-        r_wrist_buffer = []
-        l_wrist_buffer = []
-        WRIST_BUFFER_MAXLEN = 60
-        wrist_alpha = 0.75
-        r_vel_mps_display = 0.0
-        l_vel_mps_display = 0.0
-        r_vel_mph_display = 0.0
-        l_vel_mph_display = 0.0
-        PLAYER_HEIGHT_METERS = 1.82 # an assumption
-
-        # velocity graphs
-        velocities = []
-        l_w_velocities = []
-        r_w_velocities = []
-
-        # player movement
-        heat_color = None
-
-        # state variables
-        prev_court_preds = None
-        prev_frame_pose = None
-        prev_pose_results = None
-        prev_ball_frame = None
-        prev_ball_results = None
-        prev_player_movement_results = None
-        prev_player_movement_results_frame = None
-        prev_pose_landmarks = None
-        prev_pose_frame = None
-        pose_frame = None
-
-        # analytics
-        shot_occurences = {
-            "forehand": 0,
-            "backhand": 0,
-            "slice_volley": 0,
-            "serve_overhead": 0,
-        }
-        total_shots_for_percentages = 0
+        from api.configs import (
+            previous_prediction,
+            frame_index,
+            last_pred_frame,
+            state,
+            output_class,
+            trail,
+            MAX_TRAIL_LENGTH,
+            coordinates,
+            ball_history,
+            BALL_SMOOTH_WINDOW,
+            BALL_POLY_ORDER,
+            view_type,
+            view_type_determined,
+            pbar,
+            meters_per_pixel,
+            court_baseline_length_meters,
+            court_box_updated,
+            speed_buffer,
+            speed_buffer_size,
+            mps_to_mph_conversion_factor,
+            prev_velocity,
+            last_ball_px,
+            r_wrist_buffer,
+            l_wrist_buffer,
+            WRIST_BUFFER_MAXLEN,
+            wrist_alpha,
+            r_vel_mps_display,
+            l_vel_mps_display,
+            r_vel_mph_display,
+            l_vel_mph_display,
+            PLAYER_HEIGHT_METERS,
+            velocities,
+            l_w_velocities,
+            r_w_velocities,
+            heat_color,
+            prev_court_preds,
+            prev_frame_pose,
+            prev_pose_results,
+            prev_ball_frame,
+            prev_ball_results,
+            prev_player_movement_results,
+            prev_player_movement_results_frame,
+            prev_pose_landmarks,
+            prev_pose_frame,
+            pose_frame,
+            shot_occurences,
+            total_shots_for_percentages,
+        )
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
@@ -815,8 +777,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                         l_wrist_buffer.pop(0)
 
                     # compute velocities (px/s)
-                    r_vel_px = smooth_velocity(r_wrist_buffer, dt)
-                    l_vel_px = smooth_velocity(l_wrist_buffer, dt)
+                    r_vel_px = calculate_velocity(r_wrist_buffer, dt)
+                    l_vel_px = calculate_velocity(l_wrist_buffer, dt)
 
                     # convert to real-world units
                     r_vel_mps = r_vel_px * meters_per_pixel_approx
@@ -833,13 +795,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
                     cv.circle(frame, tuple(l_wrist.astype(int)), 6, (255, 0, 0), -1)
-
-                    # display velocity
-                    cv.putText(frame, f"Right wrist velocity: {r_vel_mps_display:.2f} m/s ({r_vel_mph_display:.1f} mph)", (20, 80),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-
-                    cv.putText(frame, f"Left wrist velocity: {l_vel_mps_display:.2f} m/s ({l_vel_mph_display:.1f} mph)", (20, 160),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
 
                     landmarks = results.pose_landmarks.landmark
 
@@ -1029,40 +984,6 @@ async def main(request: Request, video: UploadFile = File(...)):
 
 # -------------------------------------------------------------------------------- update mini court --------------------------------------------------------------------------------
 
-            # mini_w, mini_h = 200, 400           # size of mini court
-            # margin = 20                         # padding from top-right corner
-            # mini_top_left = (1280 - mini_w - margin, margin)
-            # mini_bottom_right = (1280 - margin, margin + mini_h)
-
-            # # copy frame
-            # frame_with_mini = frame.copy()
-
-            # # overlay mini court permanently
-            # alpha = 1.0  # fully opaque black background
-            # mask = mini_court_overlay > 0
-            # frame_with_mini[mask] = mini_court_overlay[mask]
-
-            # # overlay the mini court permanently
-            # frame_with_mini = frame.copy()
-
-            # # paste mini court overlay directly (black background + neon lines)
-            # mx, my = mini_top_left
-            # frame_with_mini[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
-
-            # # draw yellow ball if detected
-            # if moving_ball and court_box is not None:
-
-            #     cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
-
-            #     # get ratios from main plane to mini court planes
-            #     ball_x_ratio = (cx - cx1) / (cx2 - cx1)
-            #     ball_y_ratio = (cy - cy1) / (cy2 - cy1)
-                
-            #     mini_ball_x = int(mx + ball_x_ratio * mw)
-            #     mini_ball_y = int(my + ball_y_ratio * mh)
-
-            #     cv.circle(frame_with_mini, (mini_ball_x, mini_ball_y), 5, (0, 255, 255), -1) # draw ball
-
             if view_type == "top":
 
                 # draw mini court overlay
@@ -1155,16 +1076,6 @@ async def main(request: Request, video: UploadFile = File(...)):
                     velocity_mph = velocity_mps * mps_to_mph_conversion_factor # convert mps to mph
                     velocity_mph = round(velocity_mph, 2)
                     velocities.append(min(velocity_mph, random.choice([105, 110, 115, 120, 125]))) # clamp
-                    
-                    # cv.putText(
-                    #     frame_with_mini,
-                    #     f"Estimated speed (1 second window): {min(velocity_mph, 150)}",
-                    #     (0, 75),
-                    #     cv.FONT_HERSHEY_SIMPLEX,
-                    #     1,
-                    #     (0, 255, 0),
-                    #     2
-                    # )
 
                     prev_velocity = velocity_mph
                     # speed_buffer = speed_buffer[-40:]
@@ -1286,20 +1197,11 @@ async def main(request: Request, video: UploadFile = File(...)):
                 os.remove(avi_path)
 
             upload_to_r2(output_path, r2_key=r2_key)
-            
-            # graphs = os.listdir("api/temp_graphs")
-            # for graph in graphs:
-            #     upload_to_r2(f"api/temp_graphs/{graph}", r2_key=r2_key)
-            
-            # generate signed url
-            # signed_url = generate_signed_url(r2_key, expiration_seconds=3600) # 1 hr expiration
+
             public_url = f"{R2_PUBLIC_URL}/{r2_key}"
             print(f"\n\nurl: {public_url}\n\n")
 
             print(f"\nn_shots: {n_contacts}\n")
-
-            print(shot_occurences)
-            print(total_shots_for_percentages)
 
             return { 
                 "message": "video processed successfully",
@@ -1308,19 +1210,21 @@ async def main(request: Request, video: UploadFile = File(...)):
                 "expires_in": 3600,
                 
                 # court view analytics
-                "right_wrist_v": r_w_velocities,
-                "left_wrist_v": l_w_velocities,
-                "n_shots_by_POI": n_contacts,
-                "total_shots": round(n_contacts*1.8),
+                "right_wrist_v": [float(vel) for vel in r_w_velocities],
+                "left_wrist_v": [float(vel) for vel in l_w_velocities], # list
+                "n_shots_by_POI": n_contacts, # int
+                "total_shots": round(n_contacts*1.8), # int
 
                 "forehand_percent": get_percentage(shot_occurences, "forehand", total_shots_for_percentages),
                 "backhand_percent": get_percentage(shot_occurences, "backhand", total_shots_for_percentages),
                 "slice_volley_percent": get_percentage(shot_occurences, "slice_volley", total_shots_for_percentages),
                 "serve_overhead_percent": get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages),
+                "right_wrist_avg": np.mean(r_w_velocities),
+                "left_wrist_avg": np.mean(l_w_velocities),
 
                 # top view analytics
-                "heatmap": heat_color,
-                "ball_speeds": velocities,
+                "heatmap": None,
+                "ball_speeds": [float(vel) for vel in velocities],
             }
                     
         except Exception as e:
@@ -1349,14 +1253,6 @@ async def main(request: Request, video: UploadFile = File(...)):
         for path in ["input_path", "output_path", "avi_path"]:
             if path in locals() and os.path.exists(locals()[path]):
                 os.remove(locals()[path])
-        
-        # try:
-        #     os.remove("api/temp_graphs/r_vs_l_graph.jpeg")
-        #     os.remove("api/temp_graphs/rw_hist.jpeg")
-        #     os.remove("api/temp_graphs/lw_hist.jpeg")
-        # except:
-        #     os.remove("api/temp_graphs/shot_speed_line.jpeg")
-        #     os.remove("api/temp_graphs/player_heatmap.jpeg")
 
         os.remove("api/temp_videos/audio.wav") # delete wav file
 
