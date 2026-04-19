@@ -42,7 +42,7 @@ export default function Signup() {
       >
         <span className="text-6xl mb-6">🎾</span>
         <h2 className="text-4xl font-extrabold text-white mb-4 leading-tight">
-          Your AI coach<br />awaits.
+          Your AI analysis<br />awaits.
         </h2>
         <p className="text-white/60 text-base max-w-xs leading-relaxed">
           Create your free account and start getting smarter feedback on your tennis game today.

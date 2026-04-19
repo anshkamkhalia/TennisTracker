@@ -26,24 +26,56 @@ export default function Record() {
   const [dragOver, setDragOver] = useState(false);
 
   async function sendToServer(file: File) {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await processVideo(file);
+  setLoading(true);
+  setError("");
 
-      // Save session to Supabase
-      await supabase.from("sessions").insert({
+  const now = new Date();
+  try {
+    const res = await processVideo(file);
+
+    console.log(res);
+
+    let sessionId: string | null = null;
+
+    if (res.video_type === "court") {
+      const { data, error } = await supabase.from("sessions").insert({
+        user_id: user?.id,
+        title: "Session from " + now.toLocaleDateString('en-US'),
+        video_url: res.url,
+        video_type: res.video_type,
+        right_wrist_v: res.right_wrist_v,
+        left_wrist_v: res.left_wrist_v,
+        right_wrist_avg: res.right_wrist_avg,
+        left_wrist_avg: res.left_wrist_avg,
+        total_shots: res.total_shots,
+        n_shots_by_poi: res.n_shots_by_POI,
+        forehand_percent: res.forehand_percent,
+        backhand_percent: res.backhand_percent,
+        slice_volley_percent: res.slice_volley_percent,
+        serve_overhead_percent: res.serve_overhead_percent,
+      }).select("id").single();
+      if (error) throw error;
+      sessionId = data?.id;
+    } else {
+      const { data, error } = await supabase.from("sessions").insert({
         user_id: user?.id,
         video_url: res.url,
-      });
-
-      navigate("/result", { state: { url: res.url } });
-    } catch (err: any) {
-      setError(err.message || "Upload failed");
-    } finally {
-      setLoading(false);
+        video_type: res.video_type,
+        heatmap: res.heatmap,
+        ball_speeds: res.ball_speeds,
+      }).select("id").single();
+      if (error) throw error;
+      sessionId = data?.id;
     }
+
+    navigate("/result", { state: { id: sessionId } });
+  } catch (err: any) {
+    setError(err.message || "Upload failed");
+  } finally {
+    setLoading(false);
   }
+}
+
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

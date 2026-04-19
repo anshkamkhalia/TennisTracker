@@ -828,7 +828,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                         output_class = LABELS_INV[label]
                         confidence = probs[label]
 
-                        if output_class == "slice_volley" and np.random.rand() <= 0.75:
+                        if output_class == "slice_volley" and np.random.rand() <= 0.85:
                             output_class = "neutral"
                     
                         if output_class != "neutral":
@@ -1203,28 +1203,45 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             print(f"\nn_shots: {n_contacts}\n")
 
+            fh_percent = get_percentage(shot_occurences, "forehand", total_shots_for_percentages)
+            bh_percent = get_percentage(shot_occurences, "backhand", total_shots_for_percentages)
+            sv_percent = get_percentage(shot_occurences, "slice_volley", total_shots_for_percentages)
+            so_percent = get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages)
+
+            print(f"\nforehand percent: {fh_percent}\n")
+
+            print(f"\nbackhand percent: {bh_percent}\n")
+
+            print(f"\nslice_volley percent: {sv_percent}\n")
+
+            print(f"\nserve_overhead percent: {so_percent}\n")
+
+            print(f"\ntotal shots: {total_shots_for_percentages}\n")
+
+            print(f"shot occurences: {shot_occurences}")
+
             return { 
                 "message": "video processed successfully",
                 "url": public_url,
-                "video_type": view_type,
-                "expires_in": 3600,
+                "video_type": view_type, # top or court
                 
                 # court view analytics
-                "right_wrist_v": [float(vel) for vel in r_w_velocities],
-                "left_wrist_v": [float(vel) for vel in l_w_velocities], # list
                 "n_shots_by_POI": n_contacts, # int
                 "total_shots": round(n_contacts*1.8), # int
 
-                "forehand_percent": get_percentage(shot_occurences, "forehand", total_shots_for_percentages),
-                "backhand_percent": get_percentage(shot_occurences, "backhand", total_shots_for_percentages),
-                "slice_volley_percent": get_percentage(shot_occurences, "slice_volley", total_shots_for_percentages),
-                "serve_overhead_percent": get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages),
+                "forehand_percent": fh_percent,
+                "backhand_percent": bh_percent,
+                "slice_volley_percent": sv_percent,
+                "serve_overhead_percent": so_percent,
                 "right_wrist_avg": np.mean(r_w_velocities),
                 "left_wrist_avg": np.mean(l_w_velocities),
 
+                "right_wrist_v": [float(vel) for vel in r_w_velocities],
+                "left_wrist_v": [float(vel) for vel in l_w_velocities],
+
                 # top view analytics
-                "heatmap": None,
-                "ball_speeds": [float(vel) for vel in velocities],
+                "heatmap": heat_color,
+                "ball_speeds": [float(vel) for vel in velocities] if len(velocities) > 0 else None,
             }
                     
         except Exception as e:

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
-import { ArrowLeft, Play, Trash2 } from "lucide-react";
+import { ArrowLeft, Play, Trash2, Pencil, Check, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 type Session = {
   id: string;
   video_url: string;
   created_at: string;
+  title: string | null;
+  description: string | null;
 };
 
 export default function History() {
@@ -15,6 +17,9 @@ export default function History() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -35,9 +40,27 @@ export default function History() {
     setSessions(prev => prev.filter(s => s.id !== id));
   }
 
+  function startEdit(session: Session) {
+    setEditing(session.id);
+    setEditTitle(session.title || "");
+    setEditDesc(session.description || "");
+  }
+
+  async function saveEdit(id: string) {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ title: editTitle || null, description: editDesc || null })
+      .eq("id", id);
+    if (!error) {
+      setSessions(prev =>
+        prev.map(s => s.id === id ? { ...s, title: editTitle || null, description: editDesc || null } : s)
+      );
+    }
+    setEditing(null);
+  }
+
   return (
     <div className="px-10 py-8 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex items-center gap-4 mb-8">
         <button
           onClick={() => navigate("/home")}
@@ -70,35 +93,84 @@ export default function History() {
           sessions.map((session, i) => (
             <div
               key={session.id}
-              className="flex items-center gap-4 px-6 py-4 border-b last:border-b-0 border-gray-50 hover:bg-gray-50 transition"
+              className="flex items-start gap-4 px-6 py-4 border-b last:border-b-0 border-gray-50 hover:bg-gray-50 transition"
             >
-              {/* Thumbnail placeholder */}
               <div className="w-20 h-14 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
                 <video src={session.video_url} className="w-full h-full object-cover" />
               </div>
 
-              <div className="flex-1">
-                <p className="font-semibold text-gray-900 text-sm">Session {sessions.length - i}</p>
-                <p className="text-gray-400 text-xs mt-0.5">
-                  {new Date(session.created_at).toLocaleDateString("en-US", {
-                    weekday: "short", month: "short", day: "numeric", year: "numeric",
-                  })}
-                </p>
+              <div className="flex-1 min-w-0">
+                {editing === session.id ? (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      value={editTitle}
+                      onChange={e => setEditTitle(e.target.value)}
+                      placeholder="Session title"
+                      className="text-sm font-semibold border border-gray-200 rounded-lg px-3 py-1.5 w-full focus:outline-none focus:border-[#1A3263]"
+                    />
+                    <textarea
+                      value={editDesc}
+                      onChange={e => setEditDesc(e.target.value)}
+                      placeholder="Add a description (optional)"
+                      rows={2}
+                      className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 w-full resize-none focus:outline-none focus:border-[#1A3263]"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <p className="font-semibold text-gray-900 text-sm">
+                      {session.title || `Session ${sessions.length - i}`}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      {new Date(session.created_at).toLocaleDateString("en-US", {
+                        weekday: "short", month: "short", day: "numeric", year: "numeric",
+                      })}
+                    </p>
+                    {session.description && (
+                      <p className="text-gray-500 text-xs mt-1 truncate">{session.description}</p>
+                    )}
+                  </>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => navigate("/result", { state: { url: session.video_url } })}
-                  className="flex items-center gap-1.5 bg-[#1A3263] text-white px-3.5 py-2 rounded-lg text-xs font-semibold hover:bg-[#15295a] transition cursor-pointer border-none"
-                >
-                  <Play size={12} fill="white" /> Watch
-                </button>
-                <button
-                  onClick={() => deleteSession(session.id)}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer border-none"
-                >
-                  <Trash2 size={14} className="text-red-500" />
-                </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {editing === session.id ? (
+                  <>
+                    <button
+                      onClick={() => saveEdit(session.id)}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-green-50 hover:bg-green-100 transition cursor-pointer border-none"
+                    >
+                      <Check size={14} className="text-green-600" />
+                    </button>
+                    <button
+                      onClick={() => setEditing(null)}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 transition cursor-pointer border-none"
+                    >
+                      <X size={14} className="text-gray-500" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => startEdit(session)}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 transition cursor-pointer border-none"
+                    >
+                      <Pencil size={13} className="text-gray-400" />
+                    </button>
+                    <button
+                      onClick={() => navigate("/result", { state: { id: session.id } })}
+                      className="flex items-center gap-1.5 bg-[#1A3263] text-white px-3.5 py-2 rounded-lg text-xs font-semibold hover:bg-[#15295a] transition cursor-pointer border-none"
+                    >
+                      <Play size={12} fill="white" /> Watch
+                    </button>
+                    <button
+                      onClick={() => deleteSession(session.id)}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer border-none"
+                    >
+                      <Trash2 size={14} className="text-red-500" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))

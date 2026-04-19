@@ -68,7 +68,7 @@ export default function Welcome() {
             lineHeight: 1.1, marginBottom: 24, letterSpacing: "-1px",
           }}>
             Elevate Your Game<br />
-            <span style={{ color: "#60a5fa" }}>With AI Coaching</span>
+            <span style={{ color: "#60a5fa" }}>With AI Analysis</span>
           </h1>
 
           <p style={{

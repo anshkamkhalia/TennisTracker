@@ -8,6 +8,7 @@ type Session = {
   id: string;
   video_url: string;
   created_at: string;
+  title: string | null;
 };
 
 export default function Home() {
@@ -25,7 +26,7 @@ export default function Home() {
     async function fetchSessions() {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*")
+        .select("id, video_url, created_at, title")
         .eq("user_id", user!.id)
         .order("created_at", { ascending: false })
         .limit(5);
@@ -37,7 +38,6 @@ export default function Home() {
 
   return (
     <div className="px-10 py-8 max-w-3xl mx-auto">
-      {/* Header */}
       <div className="flex justify-between items-start mb-8">
         <div>
           <p className="text-gray-500 text-sm mb-1">{greeting} 👋</p>
@@ -52,7 +52,6 @@ export default function Home() {
       </div>
 
       <div className="flex flex-col gap-6">
-        {/* Quick Actions */}
         <div>
           <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-4">
@@ -61,7 +60,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Recent Sessions */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center">
             <h2 className="text-base font-bold text-gray-900">Recent Sessions</h2>
@@ -89,14 +87,16 @@ export default function Home() {
             sessions.map((session, i) => (
               <div
                 key={session.id}
-                onClick={() => navigate("/result", { state: { url: session.video_url } })}
+                onClick={() => navigate("/result", { state: { id: session.id } })}
                 className="flex items-center gap-4 px-6 py-3.5 border-b last:border-b-0 border-gray-50 hover:bg-gray-50 cursor-pointer transition"
               >
                 <div className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center text-xl shrink-0">
                   🎾
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-gray-900 text-sm">Session {sessions.length - i}</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {session.title || `Session ${sessions.length - i}`}
+                  </p>
                   <p className="text-gray-400 text-xs mt-0.5">
                     {new Date(session.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </p>

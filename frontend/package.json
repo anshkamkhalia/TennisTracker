@@ -9,8 +9,10 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.61.3",
     "@supabase/supabase-js": "^2.101.1",
+    "apexcharts": "^5.10.6",
     "lucide-react": "^0.577.0",
     "react": "^18.3.1",
+    "react-apexcharts": "^2.1.0",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.13.1"
   },
