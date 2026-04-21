@@ -43,20 +43,20 @@ y_test_tb = np.load(os.path.join(
     LANDMARKS, "y_test_shot_classification_backhand.npy"
 ))
 
-# load saved data -> slices + volleys
-X_train_sv = np.load(os.path.join(
-    LANDMARKS, "X_train_shot_classification_slice_volley.npy"
-))
-y_train_sv = np.load(os.path.join(
-    LANDMARKS, "y_train_shot_classification_slice_volley.npy"
-))
+# # load saved data -> slices + volleys
+# X_train_sv = np.load(os.path.join(
+#     LANDMARKS, "X_train_shot_classification_slice_volley.npy"
+# ))
+# y_train_sv = np.load(os.path.join(
+#     LANDMARKS, "y_train_shot_classification_slice_volley.npy"
+# ))
 
-X_test_sv = np.load(os.path.join(
-    LANDMARKS, "X_test_shot_classification_slice_volley.npy"
-))
-y_test_sv = np.load(os.path.join(
-    LANDMARKS, "y_test_shot_classification_slice_volley.npy"
-))
+# X_test_sv = np.load(os.path.join(
+#     LANDMARKS, "X_test_shot_classification_slice_volley.npy"
+# ))
+# y_test_sv = np.load(os.path.join(
+#     LANDMARKS, "y_test_shot_classification_slice_volley.npy"
+# ))
 
 # load saved data -> serves + overheads
 X_train_so = np.load(os.path.join(
@@ -77,28 +77,28 @@ y_test_so = np.load(os.path.join(
 X_train = np.concatenate([
     X_train_tf,
     X_train_tb,
-    X_train_sv,
+    # X_train_sv,
     X_train_so
 ], axis=0)
 
 y_train = np.concatenate([
     y_train_tf,
     y_train_tb,
-    y_train_sv,
+    # y_train_sv,
     y_train_so
 ], axis=0)
 
 X_test = np.concatenate([
     X_test_tf,
     X_test_tb,
-    X_test_sv,
+    # X_test_sv,
     X_test_so
 ], axis=0)
 
 y_test = np.concatenate([
     y_test_tf,
     y_test_tb,
-    y_test_sv,
+    # y_test_sv,
     y_test_so
 ], axis=0)
 

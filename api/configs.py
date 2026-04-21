@@ -59,7 +59,6 @@ pose_frame = None
 shot_occurences = {
     "forehand": 0,
     "backhand": 0,
-    "slice_volley": 0,
     "serve_overhead": 0,
 }
 total_shots_for_percentages = 0

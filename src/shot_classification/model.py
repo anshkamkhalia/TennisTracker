@@ -4,7 +4,7 @@ from tensorflow.keras.models import Model
 
 
 class ShotClassifier(Model):
-    def __init__(self, num_classes=4, **kwargs):
+    def __init__(self, num_classes=3, **kwargs):
         super().__init__(**kwargs)
 
         self.input_proj = Dense(128, activation="relu")

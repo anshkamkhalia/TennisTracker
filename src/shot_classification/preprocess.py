@@ -24,15 +24,15 @@ DELAY = 26
 LABELS = {
     "forehand": 0,
     "backhand": 1,
-    "slice_volley": 2,
-    "serve_overhead": 3,
+    # "slice_volley": 2,
+    "serve_overhead": 2,
 }
 
 # copy map: number of times each class will be duplicated
 COPY_MAP = {
-    "forehand": 35,
-    "backhand": 35,
-    "slice_volley": 10,
+    "forehand": 30,
+    "backhand": 30,
+    # "slice_volley": 10,
     "serve_overhead": 25, 
 }
 
@@ -315,7 +315,7 @@ def preprocess(
 # NEW SHAPE IS (60, 212)
 
 def main():
-    shots = ["forehand", "backhand", "slice_volley", "serve_overhead"]
+    shots = ["forehand", "backhand", "serve_overhead"]
 
     # use processpoolexecutor to speed up
     with ProcessPoolExecutor(max_workers=4) as executor:

@@ -5,7 +5,7 @@ i = 5  # video index
 video_path = f"data/court-level-videos/videoplayback{i}.mp4"
 
 # load trained yolo instance
-model = YOLO("hugging_face_best.pt")
+model = YOLO("model.pt")
 
 # load video
 cap = cv.VideoCapture(video_path)
@@ -40,7 +40,8 @@ while True:
         source=frame,
         conf=0.20,
         save=False,
-        verbose=True
+        verbose=True,
+        classes=[0]
     )
 
     r = results[0]

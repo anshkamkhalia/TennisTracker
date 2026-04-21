@@ -72,14 +72,13 @@ s3 = boto3.client(
 LABELS = {
     "forehand": 0,
     "backhand": 1,
-    "slice_volley": 2,
-    "serve_overhead": 3,
+    "serve_overhead": 2,
 }
 
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 # paths
-shot_model_path = "api/serialized_models/new_sc.keras" # use new shot clasification model (temporal transformer)
+shot_model_path = "serialized_models/new_sc.keras" # use new shot clasification model (temporal transformer)
 neutral_model_path = "api/serialized_models/neutrality.keras"
 # classifies shots
 shot_classifier = tf.keras.saving.load_model(shot_model_path, custom_objects={ # load model with correct classes
@@ -365,16 +364,12 @@ async def main(request: Request, video: UploadFile = File(...)):
             prev_velocity,
             last_ball_px,
             r_wrist_buffer,
-            l_wrist_buffer,
             WRIST_BUFFER_MAXLEN,
             wrist_alpha,
             r_vel_mps_display,
-            l_vel_mps_display,
             r_vel_mph_display,
-            l_vel_mph_display,
             PLAYER_HEIGHT_METERS,
             velocities,
-            l_w_velocities,
             r_w_velocities,
             heat_color,
             prev_court_preds,
@@ -757,44 +752,30 @@ async def main(request: Request, video: UploadFile = File(...)):
                         landmarks[16].y * h
                     ])
 
-                    l_wrist = np.array([
-                        landmarks[15].x * w,
-                        landmarks[15].y * h
-                    ])
 
                     # convert to full-frame coords
                     r_wrist += np.array([x1, y1])
-                    l_wrist += np.array([x1, y1])
 
                     # append safely
                     safe_append(r_wrist_buffer, r_wrist)
-                    safe_append(l_wrist_buffer, l_wrist)
 
-                    # trim buffers
                     if len(r_wrist_buffer) > WRIST_BUFFER_MAXLEN:
-                        r_wrist_buffer.pop(0)
-                    if len(l_wrist_buffer) > WRIST_BUFFER_MAXLEN:
-                        l_wrist_buffer.pop(0)
+                        
+                        # compute velocities (px/s)
+                        r_vel_px = calculate_velocity(r_wrist_buffer, dt)
 
-                    # compute velocities (px/s)
-                    r_vel_px = calculate_velocity(r_wrist_buffer, dt)
-                    l_vel_px = calculate_velocity(l_wrist_buffer, dt)
+                        # convert to real-world units
+                        r_vel_mps = r_vel_px * meters_per_pixel_approx
 
-                    # convert to real-world units
-                    r_vel_mps = r_vel_px * meters_per_pixel_approx
-                    l_vel_mps = l_vel_px * meters_per_pixel_approx
+                        r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
 
-                    r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
-                    l_vel_mps_display = wrist_alpha * l_vel_mps + (1 - wrist_alpha) * l_vel_mps_display
+                        r_vel_mph_display = r_vel_mps_display * 2.237
+                        r_w_velocities.append(r_vel_mph_display)
 
-                    r_vel_mph_display = r_vel_mps_display * 2.237
-                    l_vel_mph_display = l_vel_mps_display * 2.237
-                    l_w_velocities.append(l_vel_mph_display)
-                    r_w_velocities.append(r_vel_mph_display)
+                        r_wrist_buffer.clear()
 
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
-                    cv.circle(frame, tuple(l_wrist.astype(int)), 6, (255, 0, 0), -1)
 
                     landmarks = results.pose_landmarks.landmark
 
@@ -848,50 +829,59 @@ async def main(request: Request, video: UploadFile = File(...)):
                         display_text = "neutral"
 
                     # write annotated frame to output video (top-right corner)
+                    if "neutral" not in display_text: # only write if not neutral
+                        font = cv.FONT_HERSHEY_DUPLEX
+                        font_scale = 0.85
+                        thickness = 1
 
-                    font = cv.FONT_HERSHEY_SIMPLEX
-                    font_scale = 1
-                    thickness = 2
+                        shot_colors = {
+                            "forehand":    (50,  200, 255),
+                            "backhand":    (80,  255, 150),
+                            # "slice_volley":(255, 100,  80),
+                        }
+                        color = shot_colors.get(output_class, (200, 200, 200))
 
-                    # color based on shot type
-                    if output_class == "forehand":
-                        color = (255, 191, 0)
-                    elif output_class == "backhand":
-                        color = (166, 255, 0)
-                    elif output_class == "slice_volley":
-                        color = (0, 0, 255)
-                    else:
-                        color = (120, 120, 0)
+                        (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
 
-                    (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
+                        pad_x   = 18
+                        pad_y   = 12
+                        margin  = 14
+                        corner_r = 10
 
-                    # top-right position with padding
-                    padding = 10
-                    org = (
-                        frame.shape[1] - text_w - padding,
-                        text_h + padding
-                    )
+                        box_w = text_w + pad_x * 2
+                        box_h = text_h + pad_y * 2 + baseline
 
-                    # background rectangle
-                    cv.rectangle(
-                        frame,
-                        (org[0] - padding, org[1] - text_h - padding),
-                        (org[0] + text_w + padding, org[1] + baseline + padding),
-                        (0, 0, 0),
-                        -1
-                    )
+                        x1 = frame.shape[1] - box_w - margin
+                        y1 = margin
+                        x2 = x1 + box_w
+                        y2 = y1 + box_h
 
-                    # text
-                    cv.putText(
-                        frame,
-                        display_text,
-                        org,
-                        font,
-                        font_scale,
-                        color,
-                        thickness,
-                        cv.LINE_AA
-                    )
+                        overlay = frame.copy()
+
+                        cv.rectangle(overlay, (x1 + corner_r, y1), (x2 - corner_r, y2), (18, 18, 22), -1)
+                        cv.rectangle(overlay, (x1, y1 + corner_r), (x2, y2 - corner_r), (18, 18, 22), -1)
+                        for cx, cy in [(x1+corner_r, y1+corner_r), (x2-corner_r, y1+corner_r),
+                                    (x1+corner_r, y2-corner_r), (x2-corner_r, y2-corner_r)]:
+                            cv.ellipse(overlay, (cx, cy), (corner_r, corner_r), 0, 0, 360, (18, 18, 22), -1)
+
+                        cv.addWeighted(overlay, 0.82, frame, 0.18, 0, frame)
+
+                        cv.rectangle(frame, (x1, y1 + corner_r), (x1 + 3, y2 - corner_r), color, -1)
+
+                        cv.rectangle(frame, (x1, y1), (x2, y2), (60, 60, 70), 1)
+
+                        cv.putText(
+                            frame,
+                            display_text,
+                            (x1 + pad_x + 6, y1 + pad_y + text_h),
+                            font,
+                            font_scale,
+                            color,
+                            thickness,
+                            cv.LINE_AA
+                        )
+
+                    else: pass 
 
 # -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
 
@@ -1205,14 +1195,11 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             fh_percent = get_percentage(shot_occurences, "forehand", total_shots_for_percentages)
             bh_percent = get_percentage(shot_occurences, "backhand", total_shots_for_percentages)
-            sv_percent = get_percentage(shot_occurences, "slice_volley", total_shots_for_percentages)
             so_percent = get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages)
 
             print(f"\nforehand percent: {fh_percent}\n")
 
             print(f"\nbackhand percent: {bh_percent}\n")
-
-            print(f"\nslice_volley percent: {sv_percent}\n")
 
             print(f"\nserve_overhead percent: {so_percent}\n")
 
@@ -1231,13 +1218,10 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 "forehand_percent": fh_percent,
                 "backhand_percent": bh_percent,
-                "slice_volley_percent": sv_percent,
                 "serve_overhead_percent": so_percent,
                 "right_wrist_avg": np.mean(r_w_velocities),
-                "left_wrist_avg": np.mean(l_w_velocities),
 
                 "right_wrist_v": [float(vel) for vel in r_w_velocities],
-                "left_wrist_v": [float(vel) for vel in l_w_velocities],
 
                 # top view analytics
                 "heatmap": heat_color,
