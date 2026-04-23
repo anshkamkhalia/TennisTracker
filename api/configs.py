@@ -62,3 +62,5 @@ shot_occurences = {
     "serve_overhead": 0,
 }
 total_shots_for_percentages = 0
+
+pose_landmarks_3d = []

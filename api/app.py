@@ -29,14 +29,12 @@ from ultralytics import YOLO # object detection
 import numpy as np # mathematical operations and arrays
 from src.shot_classification.model import ShotClassifier # subclassed model
 from src.shot_classification.neutral_model import NeutralIdentifier, Attention # subclassed models and layers
-import supabase # metadata?
 import os # path handling
 from werkzeug.utils import secure_filename # for security checks
 import boto3 # cloudflare r2 client
 from botocore.client import Config # version configs
 from botocore.exceptions import NoCredentialsError # exceptions
 from dotenv import load_dotenv # secure credential storage
-import datetime
 from botocore.exceptions import ClientError # more exceptions
 import subprocess # running commands like ffmpeg
 import time as t # frame -> audio sync
@@ -78,7 +76,7 @@ LABELS = {
 LABELS_INV = {v: k for k, v in LABELS.items()} # create inverse: {0: "topspin_forehand"...}
 
 # paths
-shot_model_path = "serialized_models/new_sc.keras" # use new shot clasification model (temporal transformer)
+shot_model_path = "api/serialized_models/new_sc.keras" # use new shot clasification model (temporal transformer)
 neutral_model_path = "api/serialized_models/neutrality.keras"
 # classifies shots
 shot_classifier = tf.keras.saving.load_model(shot_model_path, custom_objects={ # load model with correct classes
@@ -384,6 +382,7 @@ async def main(request: Request, video: UploadFile = File(...)):
             pose_frame,
             shot_occurences,
             total_shots_for_percentages,
+            pose_landmarks_3d,
         )
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
@@ -508,24 +507,30 @@ async def main(request: Request, video: UploadFile = File(...)):
         audio_path = "api/temp_videos/audio.wav"
         video_path = input_path
 
-        if not os.path.exists(audio_path):
-            subprocess.run([
-                "ffmpeg",
-                "-i", video_path,
-                "-vn",              
-                "-acodec", "pcm_s16le",
-                "-ar", "16000",     
-                "-ac", "1", "-y",
-                audio_path
-            ], check=True)
+        try:
+            if not os.path.exists(audio_path):
+                subprocess.run([
+                    "ffmpeg",
+                    "-i", video_path,
+                    "-vn",              
+                    "-acodec", "pcm_s16le",
+                    "-ar", "16000",     
+                    "-ac", "1", "-y",
+                    audio_path
+                ], check=True)
+        except:
+            pass
 
         fps = input_fps
+        try:
+            audio, sr = librosa.load(audio_path, sr=16_000) # load .wav audio with librosa
+            time = np.arange(len(audio)) / sr
+            avg_energy = np.mean(np.sqrt(audio**2))
+            MIN_ENERGY = avg_energy + 0.03
 
-        audio, sr = librosa.load(audio_path, sr=16_000) # load .wav audio with librosa
-        time = np.arange(len(audio)) / sr
+        except:
 
-        avg_energy = np.mean(np.sqrt(audio**2))
-        MIN_ENERGY = avg_energy + 0.03
+            audio = None
 
         # sound based contact configs
         n_contacts = 0
@@ -788,9 +793,21 @@ async def main(request: Request, video: UploadFile = File(...)):
                         feat = extract_features(pose_frame, prev_pose_frame)
                         frame_buffer.append(feat)
                     else: pass
-                        
-                    prev_pose_frame = pose_frame.copy()
 
+                    # normalize and append for 3d rendering
+                    pose_frame_normalized = pose_frame.copy()
+                    root = (pose_frame_normalized[23] + pose_frame_normalized[24]) / 2
+                    pose_frame_normalized = pose_frame_normalized - root
+                    shoulder = (pose_frame_normalized[11] + pose_frame_normalized[12]) / 2
+                    hip = root
+
+                    scale = np.linalg.norm(shoulder - hip) + 1e-6
+
+                    pose_frame_normalized = pose_frame_normalized / scale
+
+                    pose_landmarks_3d.append(pose_frame_normalized.astype(np.float32))
+            
+                    prev_pose_frame = pose_frame.copy()
                     if len(frame_buffer) > 0:
                         inference_neutral_pose_frame = pose_frame[np.newaxis, :, :, np.newaxis]  # minimal fix: shape (1,33,3,1)
                         raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
@@ -1223,8 +1240,10 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 "right_wrist_v": [float(vel) for vel in r_w_velocities],
 
+                "pose_landmarks_3d": pose_landmarks_3d, # for 3d pose rendering
+
                 # top view analytics
-                "heatmap": heat_color,
+                "heatmap": list(heat_color),
                 "ball_speeds": [float(vel) for vel in velocities] if len(velocities) > 0 else None,
             }
                     
@@ -1255,6 +1274,9 @@ async def main(request: Request, video: UploadFile = File(...)):
             if path in locals() and os.path.exists(locals()[path]):
                 os.remove(locals()[path])
 
-        os.remove("api/temp_videos/audio.wav") # delete wav file
+        try:
+            os.remove("api/temp_videos/audio.wav") # delete wav file
+        except:
+            pass
 
         gc.collect()
