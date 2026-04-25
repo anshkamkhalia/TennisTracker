@@ -25,7 +25,7 @@ from slowapi import _rate_limit_exceeded_handler
 import tensorflow as tf # deep learning
 import mediapipe as mp # keypoint extraction (pose)
 import cv2 as cv # video handling and utils
-from ultralytics import YOLO # object detection
+from ultralytics import YOLO # object detectionit s
 import numpy as np # mathematical operations and arrays
 from src.shot_classification.model import ShotClassifier # subclassed model
 from src.shot_classification.neutral_model import NeutralIdentifier, Attention # subclassed models and layers
@@ -1223,6 +1223,8 @@ async def main(request: Request, video: UploadFile = File(...)):
             print(f"\ntotal shots: {total_shots_for_percentages}\n")
 
             print(f"shot occurences: {shot_occurences}")
+            pose_landmarks_3d = np.array(pose_landmarks_3d)
+            print(f"\n3d pose: {pose_landmarks_3d.shape}\n")
 
             return { 
                 "message": "video processed successfully",
@@ -1240,10 +1242,10 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 "right_wrist_v": [float(vel) for vel in r_w_velocities],
 
-                "pose_landmarks_3d": pose_landmarks_3d, # for 3d pose rendering
+                "pose_landmarks_3d": pose_landmarks_3d.tolist(), # for 3d pose rendering
 
                 # top view analytics
-                "heatmap": list(heat_color),
+                "heatmap": heat_color,
                 "ball_speeds": [float(vel) for vel in velocities] if len(velocities) > 0 else None,
             }
                     

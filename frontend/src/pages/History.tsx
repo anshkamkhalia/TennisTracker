@@ -36,8 +36,10 @@ export default function History() {
   }, [user]);
 
   async function deleteSession(id: string) {
-    await supabase.from("sessions").delete().eq("id", id);
-    setSessions(prev => prev.filter(s => s.id !== id));
+    const ok = window.confirm("Delete this session? This cannot be undone.");
+    if (!ok) return;
+    const { error } = await supabase.from("sessions").delete().eq("id", id);
+    if (!error) setSessions(prev => prev.filter(s => s.id !== id));
   }
 
   function startEdit(session: Session) {

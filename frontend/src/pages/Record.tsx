@@ -6,7 +6,23 @@ import { supabase } from "../lib/supabase";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
-async function processVideo(file: File): Promise<{ url: string }> {
+type ProcessVideoResponse = {
+  message?: string;
+  url: string;
+  video_type: "court" | "top" | string;
+  n_shots_by_POI?: number;
+  total_shots?: number;
+  forehand_percent?: number;
+  backhand_percent?: number;
+  serve_overhead_percent?: number;
+  right_wrist_avg?: number;
+  right_wrist_v?: number[];
+  pose_landmarks_3d?: number[][][];
+  heatmap?: string;
+  ball_speeds?: number[] | null;
+};
+
+async function processVideo(file: File): Promise<ProcessVideoResponse> {
   const formData = new FormData();
   formData.append("video", file);
   const res = await fetch(`${API_URL}/process-video`, { method: "POST", body: formData });
@@ -26,55 +42,51 @@ export default function Record() {
   const [dragOver, setDragOver] = useState(false);
 
   async function sendToServer(file: File) {
-  setLoading(true);
-  setError("");
+    setLoading(true);
+    setError("");
 
-  const now = new Date();
-  try {
-    const res = await processVideo(file);
+    const now = new Date();
+    try {
+      const res = await processVideo(file);
 
-    console.log(res);
-
-    let sessionId: string | null = null;
-
-    if (res.video_type === "court") {
-      const { data, error } = await supabase.from("sessions").insert({
-        user_id: user?.id,
-        title: "Session from " + now.toLocaleDateString('en-US'),
-        video_url: res.url,
-        video_type: res.video_type,
-        right_wrist_v: res.right_wrist_v,
-        left_wrist_v: res.left_wrist_v,
-        right_wrist_avg: res.right_wrist_avg,
-        left_wrist_avg: res.left_wrist_avg,
-        total_shots: res.total_shots,
-        n_shots_by_poi: res.n_shots_by_POI,
-        forehand_percent: res.forehand_percent,
-        backhand_percent: res.backhand_percent,
-        slice_volley_percent: res.slice_volley_percent,
-        serve_overhead_percent: res.serve_overhead_percent,
-      }).select("id").single();
-      if (error) throw error;
-      sessionId = data?.id;
-    } else {
-      const { data, error } = await supabase.from("sessions").insert({
+      let sessionId: string | null = null;
+      const commonInsert = {
         user_id: user?.id,
         video_url: res.url,
         video_type: res.video_type,
-        heatmap: res.heatmap,
-        ball_speeds: res.ball_speeds,
-      }).select("id").single();
-      if (error) throw error;
-      sessionId = data?.id;
+      };
+
+      if (res.video_type === "court") {
+        const { data, error } = await supabase.from("sessions").insert({
+          ...commonInsert,
+          title: "Session from " + now.toLocaleDateString("en-US"),
+          right_wrist_v: res.right_wrist_v,
+          right_wrist_avg: res.right_wrist_avg,
+          total_shots: res.total_shots,
+          n_shots_by_poi: res.n_shots_by_POI,
+          forehand_percent: res.forehand_percent,
+          backhand_percent: res.backhand_percent,
+          serve_overhead_percent: res.serve_overhead_percent,
+        }).select("id").single();
+        if (error) throw error;
+        sessionId = data?.id;
+      } else {
+        const { data, error } = await supabase.from("sessions").insert({
+          ...commonInsert,
+          heatmap: res.heatmap,
+          ball_speeds: res.ball_speeds,
+        }).select("id").single();
+        if (error) throw error;
+        sessionId = data?.id;
+      }
+
+      navigate("/result", { state: { id: sessionId, analysis: res } });
+    } catch (err: any) {
+      setError(err.message || "Upload failed");
+    } finally {
+      setLoading(false);
     }
-
-    navigate("/result", { state: { id: sessionId } });
-  } catch (err: any) {
-    setError(err.message || "Upload failed");
-  } finally {
-    setLoading(false);
   }
-}
 
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
