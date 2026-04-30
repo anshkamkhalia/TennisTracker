@@ -1,1 +1,1 @@
-{"detail":"Traceback (most recent call last):\n  File \"/Users/ansh/Downloads/development/tennistracker/api/app.py\", line 1232, in main\n    \"ball_speeds\": [list(vel) for vel in velocities] if len(velocities) > 0 else None,\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/ansh/Downloads/development/tennistracker/api/app.py\", line 1232, in <listcomp>\n    \"ball_speeds\": [list(vel) for vel in velocities] if len(velocities) > 0 else None,\n                    ^^^^^^^^^\nTypeError: 'numpy.float64' object is not iterable\n"}
+Internal Server Error

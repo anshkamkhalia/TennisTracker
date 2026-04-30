@@ -1203,7 +1203,7 @@ async def main(request: Request, video: UploadFile = File(...)):
             if os.path.exists(avi_path):
                 os.remove(avi_path)
 
-            upload_to_r2(output_path, r2_key=r2_key)
+            # upload_to_r2(output_path, r2_key=r2_key)
 
             public_url = f"{R2_PUBLIC_URL}/{r2_key}"
             print(f"\n\nurl: {public_url}\n\n")
@@ -1225,7 +1225,7 @@ async def main(request: Request, video: UploadFile = File(...)):
             print(f"shot occurences: {shot_occurences}")
             pose_landmarks_3d = np.array(pose_landmarks_3d)
             print(f"\n3d pose: {pose_landmarks_3d.shape}\n")
-
+            
             return { 
                 "message": "video processed successfully",
                 "url": public_url,
@@ -1242,10 +1242,10 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 "right_wrist_v": [float(vel) for vel in r_w_velocities],
 
-                "pose_landmarks_3d": pose_landmarks_3d.tolist(), # for 3d pose rendering
+                "pose_landmarks_3d": None if pose_landmarks_3d is None else pose_landmarks_3d.tolist() , # for 3d pose rendering
 
                 # top view analytics
-                "heatmap": heat_color,
+                # "heatmap": None if heat_color is None else heat_color.astype(np.float32).tolist(),
                 "ball_speeds": [float(vel) for vel in velocities] if len(velocities) > 0 else None,
             }
                     
