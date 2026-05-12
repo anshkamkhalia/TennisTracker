@@ -1,3 +1,6 @@
+import os
+from dotenv import load_dotenv # secure credential storage
+
 # config variables
 previous_prediction = "neutral" # to save the last prediction
 frame_index = 0 # to keep track of current frame
@@ -64,3 +67,21 @@ shot_occurences = {
 total_shots_for_percentages = 0
 
 pose_landmarks_3d = []
+
+# load environment variables for cloudflare r2 connnection
+load_dotenv()
+
+# get r2 credentials
+R2_ENDPOINT = os.getenv("R2_ENDPOINT")
+R2_KEY = os.getenv("R2_KEY")
+R2_SECRET = os.getenv("R2_SECRET")
+R2_BUCKET = os.getenv("R2_BUCKET")
+R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL")
+
+MAX_VIDEO_SIZE = 150 * 1024 * 1024
+ALLOWED_MIME_TYPES = {
+    "video/mp4",
+    "video/quicktime",   # .mov
+    "video/x-matroska"   # .mkv
+}
+ALLOWED_EXTENSIONS = {"mp4", "mov", "mkv"}

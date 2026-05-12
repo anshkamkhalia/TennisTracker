@@ -4,9 +4,9 @@
 # - ball detection/tracking
 # - 2d court modeling with ball
 # - ball speed estimation
-# - heatmap-based player movement tracking
 # - wrist velocity
 # - top and court viewpoints supported
+# - contact detection
 
 # -------------------------------------------------------------------------------- setup --------------------------------------------------------------------------------
 
@@ -321,6 +321,17 @@ def get_percentage(dict, shot, total):
         return round(((n_shot_oi / total) * 100), 2)
     except:
         return 0.0
+    
+def safe_float(val):
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        if np.isnan(f) or np.isinf(f):
+            return None
+        return f
+    except:
+        return None
 
 # -------------------------------------------------------------------------------- main preprocessing function --------------------------------------------------------------------------------
 
@@ -1012,56 +1023,6 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                     cv.circle(frame, (mini_ball_x, mini_ball_y), 5, (0,255,255), -1)
 
-# -------------------------------------------------------------------------------- player movement --------------------------------------------------------------------------------
-                
-                if prev_player_movement_results_frame is None or frame_index - prev_player_movement_results_frame >= 3:
-                    player_results = human_detector.predict(frame, conf=0.3, verbose=False, classes=[0])[0]
-                    prev_player_movement_results = player_results
-                    prev_player_movement_results_frame = frame_index
-                else:
-                    player_results = prev_player_movement_results
-
-                largest_player = None
-                best_area = 0
-
-                for box in player_results.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    area = (x2 - x1) * (y2 - y1)
-
-                    if area > best_area:
-                        best_area = area
-                        largest_player = (x1, y1, x2, y2)
-
-                if court_box is not None and largest_player is not None:
-                    cx1, cy1, cx2, cy2 = map(int, court_box.xyxy[0])
-                    x1, y1, x2, y2 = largest_player
-
-                    # feet position
-                    px = int((x1 + x2) / 2)
-                    py = y2
-
-                    x_ratio = (px - cx1) / (cx2 - cx1)
-                    y_ratio = (py - cy1) / (cy2 - cy1)
-
-                    hx = int(x_ratio * mw)
-                    hy = int(y_ratio * mh)
-
-                    if 0 <= hx < mw and 0 <= hy < mh:
-                        player_heatmap[hy, hx] += 1
-
-                # decay
-                player_heatmap *= 0.995
-
-                heat_blur = cv.GaussianBlur(player_heatmap, (31, 31), 0)
-
-                if heat_blur.max() > 0:
-                    heat_norm = heat_blur / heat_blur.max()
-                else:
-                    heat_norm = heat_blur
-
-                heat_uint8 = np.uint8(255 * heat_norm)
-                heat_color = cv.applyColorMap(heat_uint8, cv.COLORMAP_JET)
-
 # -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
 
             # speed calculation
@@ -1203,7 +1164,7 @@ async def main(request: Request, video: UploadFile = File(...)):
             if os.path.exists(avi_path):
                 os.remove(avi_path)
 
-            # upload_to_r2(output_path, r2_key=r2_key)
+            upload_to_r2(output_path, r2_key=r2_key)
 
             public_url = f"{R2_PUBLIC_URL}/{r2_key}"
             print(f"\n\nurl: {public_url}\n\n")
@@ -1226,27 +1187,24 @@ async def main(request: Request, video: UploadFile = File(...)):
             pose_landmarks_3d = np.array(pose_landmarks_3d)
             print(f"\n3d pose: {pose_landmarks_3d.shape}\n")
             
-            return { 
+            return {
                 "message": "video processed successfully",
                 "url": public_url,
-                "video_type": view_type, # top or court
-                
-                # court view analytics
-                "n_shots_by_POI": n_contacts, # int
-                "total_shots": round(n_contacts*1.8), # int
+                "video_type": view_type,
+
+                "n_shots_by_POI": n_contacts,
+                "total_shots": round(n_contacts * 1.8),
 
                 "forehand_percent": fh_percent,
                 "backhand_percent": bh_percent,
                 "serve_overhead_percent": so_percent,
-                "right_wrist_avg": np.mean(r_w_velocities),
 
-                "right_wrist_v": [float(vel) for vel in r_w_velocities],
+                "right_wrist_avg": safe_float(np.mean(r_w_velocities) if r_w_velocities else None),
+                "right_wrist_v": [safe_float(vel) for vel in r_w_velocities],
 
-                "pose_landmarks_3d": None if pose_landmarks_3d is None else pose_landmarks_3d.tolist() , # for 3d pose rendering
+                "pose_landmarks_3d": None if pose_landmarks_3d is None else pose_landmarks_3d.tolist(),
 
-                # top view analytics
-                # "heatmap": None if heat_color is None else heat_color.astype(np.float32).tolist(),
-                "ball_speeds": [float(vel) for vel in velocities] if len(velocities) > 0 else None,
+                "ball_speeds": [safe_float(vel) for vel in velocities] if len(velocities) > 0 else None,
             }
                     
         except Exception as e:
