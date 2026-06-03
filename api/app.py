@@ -24,6 +24,9 @@ from slowapi import _rate_limit_exceeded_handler
 
 import tensorflow as tf # deep learning
 import mediapipe as mp # keypoint extraction (pose)
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
+from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 import cv2 as cv # video handling and utils
 from ultralytics import YOLO # object detectionit s
 import numpy as np # mathematical operations and arrays
@@ -103,14 +106,15 @@ court_detector = YOLO("src/court_model/best.pt")
 seq_len = 60 # frame buffer length
 
 # mediapipe pose instance
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose(
-    static_image_mode=False,
-    model_complexity=2,
-    enable_segmentation=False,
-    min_detection_confidence=0.5,
+_base_opts = mp_python.BaseOptions(model_asset_path="pose_landmarker_full.task")
+_pose_opts = PoseLandmarkerOptions(
+    base_options=_base_opts,
+    running_mode=RunningMode.IMAGE,
+    min_pose_detection_confidence=0.5,
     min_tracking_confidence=0.5,
+    num_poses=1,
 )
+pose = PoseLandmarker.create_from_options(_pose_opts)
 
 app = FastAPI()
 
@@ -699,7 +703,9 @@ async def main(request: Request, video: UploadFile = File(...)):
                 stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
 
                 if s.frame_index % 2 == 0:
-                    results = pose.process(stroke)
+                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=stroke)
+                    _raw = pose.detect(mp_image)
+                    results = _raw if _raw.pose_landmarks else None
                     s.prev_pose_landmarks = results
                 else:
                     results = s.prev_pose_landmarks
@@ -712,7 +718,7 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 if results is not None and results.pose_landmarks:
 
-                    landmarks = results.pose_landmarks.landmark
+                    landmarks = results.pose_landmarks[0]
                     s.pose_frame = [] # to store landmarks that form a full pose
 
                     # wrist velocity calculations
@@ -749,7 +755,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
 
-                    landmarks = results.pose_landmarks.landmark
+                    landmarks = results.pose_landmarks[0]
 
                     s.pose_frame = np.zeros((33, 3), dtype=np.float32)
 
