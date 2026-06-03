@@ -349,52 +349,8 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- configs --------------------------------------------------------------------------------
 
     try:
-        from api.configs import (
-            previous_prediction,
-            frame_index,
-            last_pred_frame,
-            state,
-            output_class,
-            trail,
-            MAX_TRAIL_LENGTH,
-            coordinates,
-            ball_history,
-            BALL_SMOOTH_WINDOW,
-            BALL_POLY_ORDER,
-            view_type,
-            view_type_determined,
-            pbar,
-            meters_per_pixel,
-            court_baseline_length_meters,
-            court_box_updated,
-            speed_buffer,
-            speed_buffer_size,
-            mps_to_mph_conversion_factor,
-            prev_velocity,
-            last_ball_px,
-            r_wrist_buffer,
-            WRIST_BUFFER_MAXLEN,
-            wrist_alpha,
-            r_vel_mps_display,
-            r_vel_mph_display,
-            PLAYER_HEIGHT_METERS,
-            velocities,
-            r_w_velocities,
-            heat_color,
-            prev_court_preds,
-            prev_frame_pose,
-            prev_pose_results,
-            prev_ball_frame,
-            prev_ball_results,
-            prev_player_movement_results,
-            prev_player_movement_results_frame,
-            prev_pose_landmarks,
-            prev_pose_frame,
-            pose_frame,
-            shot_occurences,
-            total_shots_for_percentages,
-            pose_landmarks_3d,
-        )
+        from api.configs import PipelineState
+        s = PipelineState()
 
 # -------------------------------------------------------------------------------- security checks --------------------------------------------------------------------------------
                 
@@ -428,9 +384,9 @@ async def main(request: Request, video: UploadFile = File(...)):
 
         # dynamic variable (states)
         frame_buffer = [] # will fill up to 180 frames
-        frame_index = 0 # to keep track of current frame
-        previous_prediction = "neutral" # to save the last prediction
-        last_pred_frame = -999  # initialize far back so no text at start
+        s.frame_index = 0 # to keep track of current frame
+        s.previous_prediction = "neutral" # to save the last prediction
+        s.last_pred_frame = -999  # initialize far back so no text at start
 
         # get fps and load video
         cap = cv.VideoCapture(input_path)
@@ -438,14 +394,14 @@ async def main(request: Request, video: UploadFile = File(...)):
            raise HTTPException(status_code=400, detail="failed to open video file")
         
         total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT)) # get total frames for video
-        pbar = tqdm(total=total_frames, desc="processing video", unit="frame")
+        s.pbar = tqdm(total=total_frames, desc="processing video", unit="frame")
 
         # get video fps for videowriter
         input_fps = cap.get(cv.CAP_PROP_FPS)
         dt = 1.0 / input_fps if input_fps > 0 else 1/60 # dt for wrist velocity calculations
         if input_fps <= 0:
             input_fps = 30  # fallback
-        speed_buffer_size = int(input_fps) # ~1 second window, matches tester.py
+        s.speed_buffer_size = int(input_fps) # ~1 second window, matches tester.py
 
         # output video writer 
         out = cv.VideoWriter(
@@ -558,7 +514,7 @@ async def main(request: Request, video: UploadFile = File(...)):
             ret, frame = cap.read() # breaks if last frame
             if not ret: break
 
-            frame_index += 1
+            s.frame_index += 1
 
             # resize to 720p
             frame = cv.resize(frame, (1280, 720))
@@ -566,35 +522,35 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- branching logic (court detection) --------------------------------------------------------------------------------
 
             # get court predictions
-            if frame_index % 600 == 0 or frame_index == 1:
+            if s.frame_index % 600 == 0 or s.frame_index == 1:
                 court_preds = court_detector.predict(
                     frame,
                     conf=0.25,
                     verbose=False,
                     stream=False
                 )[0]
-                prev_court_preds = court_preds
+                s.prev_court_preds = court_preds
             else:
-                court_preds = prev_court_preds
+                court_preds = s.prev_court_preds
 
             boxes = court_preds.boxes
 
-            if not view_type_determined:
+            if not s.view_type_determined:
                 if boxes is None or len(boxes) == 0:
-                    view_type = "court"
-                    view_type_determined = True
+                    s.view_type = "court"
+                    s.view_type_determined = True
                 else:
                     best_conf = max([float(b.conf[0]) for b in boxes])
                     
                     if best_conf > 0.5:
-                        view_type = "top"
-                        view_type_determined = True
+                        s.view_type = "top"
+                        s.view_type_determined = True
                     else:
-                        view_type = "court"
-                        view_type_determined = True
+                        s.view_type = "court"
+                        s.view_type_determined = True
 
-            if (court_box is None or frame_index % 300 == 0) and view_type == "top": # get court locations at the beginning or every minute
-                court_box_updated = True
+            if (court_box is None or s.frame_index % 300 == 0) and s.view_type == "top": # get court locations at the beginning or every minute
+                s.court_box_updated = True
                 
                 # choose largest box
                 best_area = 0
@@ -613,8 +569,8 @@ async def main(request: Request, video: UploadFile = File(...)):
                         court_box.length = length
 
                 # calculate meters to pixel
-                if court_box is not None and court_box_updated:
-                    meters_per_pixel = court_baseline_length_meters / court_box.length # get meters per pixel
+                if court_box is not None and s.court_box_updated:
+                    s.meters_per_pixel = s.court_baseline_length_meters / court_box.length # get meters per pixel
 
                 try:
                     x1, y1, x2, y2 = map(int, court_box.xyxy[0])
@@ -627,7 +583,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                 pass
 
             # now that we have the court box we can scale the farther baseline
-            if court_box is not None and view_type == "top":
+            if court_box is not None and s.view_type == "top":
                 x1, y1, x2, y2 = map(int, court_box.xyxy[0])
 
                 # (x1, y2), (x2, y2) <- closer baseline (near camera)
@@ -675,9 +631,9 @@ async def main(request: Request, video: UploadFile = File(...)):
 
 # -------------------------------------------------------------------------------- shot classification + wrist velocity --------------------------------------------------------------------------------
             
-            if view_type == "court":
+            if s.view_type == "court":
                 # crop human using yolo to get mediapipe keypoints
-                if prev_frame_pose is None or frame_index - prev_frame_pose >= 3:
+                if s.prev_frame_pose is None or s.frame_index - s.prev_frame_pose >= 3:
                     pose_results = human_detector.predict(
                         source=frame,
                         classes=[0],
@@ -685,10 +641,10 @@ async def main(request: Request, video: UploadFile = File(...)):
                         stream=False,
                         verbose=False,
                     )
-                    prev_pose_results = pose_results
-                    prev_frame_pose = frame_index
+                    s.prev_pose_results = pose_results
+                    s.prev_frame_pose = s.frame_index
                 else:
-                    pose_results = prev_pose_results
+                    pose_results = s.prev_pose_results
 
                 # extract boxes
                 r = pose_results[0]
@@ -742,22 +698,22 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                 stroke = cv.cvtColor(cropped_person, cv.COLOR_BGR2RGB) # convert to rgb
 
-                if frame_index % 2 == 0:
+                if s.frame_index % 2 == 0:
                     results = pose.process(stroke)
-                    prev_pose_landmarks = results
+                    s.prev_pose_landmarks = results
                 else:
-                    results = prev_pose_landmarks
+                    results = s.prev_pose_landmarks
 
                 pixel_height = y2 - y1
                 if pixel_height > 0:
-                    meters_per_pixel_approx = PLAYER_HEIGHT_METERS / pixel_height
+                    meters_per_pixel_approx = s.PLAYER_HEIGHT_METERS / pixel_height
                 else:
                     meters_per_pixel_approx = 0
 
                 if results is not None and results.pose_landmarks:
 
                     landmarks = results.pose_landmarks.landmark
-                    pose_frame = [] # to store landmarks that form a full pose
+                    s.pose_frame = [] # to store landmarks that form a full pose
 
                     # wrist velocity calculations
                     h, w, _ = stroke.shape
@@ -773,40 +729,40 @@ async def main(request: Request, video: UploadFile = File(...)):
                     r_wrist += np.array([x1, y1])
 
                     # append safely
-                    safe_append(r_wrist_buffer, r_wrist)
+                    safe_append(s.r_wrist_buffer, r_wrist)
 
-                    if len(r_wrist_buffer) > WRIST_BUFFER_MAXLEN:
+                    if len(s.r_wrist_buffer) > s.WRIST_BUFFER_MAXLEN:
                         
                         # compute velocities (px/s)
-                        r_vel_px = calculate_velocity(r_wrist_buffer, dt)
+                        r_vel_px = calculate_velocity(s.r_wrist_buffer, dt)
 
                         # convert to real-world units
                         r_vel_mps = r_vel_px * meters_per_pixel_approx
 
-                        r_vel_mps_display = wrist_alpha * r_vel_mps + (1 - wrist_alpha) * r_vel_mps_display
+                        s.r_vel_mps_display = s.wrist_alpha * r_vel_mps + (1 - s.wrist_alpha) * s.r_vel_mps_display
 
-                        r_vel_mph_display = r_vel_mps_display * 2.237
-                        r_w_velocities.append(r_vel_mph_display)
+                        s.r_vel_mph_display = s.r_vel_mps_display * 2.237
+                        s.r_w_velocities.append(s.r_vel_mph_display)
 
-                        r_wrist_buffer.clear()
+                        s.r_wrist_buffer.clear()
 
                     # draw wrists
                     cv.circle(frame, tuple(r_wrist.astype(int)), 6, (0, 0, 255), -1)
 
                     landmarks = results.pose_landmarks.landmark
 
-                    pose_frame = np.zeros((33, 3), dtype=np.float32)
+                    s.pose_frame = np.zeros((33, 3), dtype=np.float32)
 
                     for i, landmark in enumerate(landmarks):
-                        pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
+                        s.pose_frame[i] = np.array([landmark.x, landmark.y, landmark.z], dtype=np.float32)
 
-                    if prev_pose_frame is not None:
-                        feat = extract_features(pose_frame, prev_pose_frame)
+                    if s.prev_pose_frame is not None:
+                        feat = extract_features(s.pose_frame, s.prev_pose_frame)
                         frame_buffer.append(feat)
                     else: pass
 
                     # normalize and append for 3d rendering
-                    pose_frame_normalized = pose_frame.copy()
+                    pose_frame_normalized = s.pose_frame.copy()
                     root = (pose_frame_normalized[23] + pose_frame_normalized[24]) / 2
                     pose_frame_normalized = pose_frame_normalized - root
                     shoulder = (pose_frame_normalized[11] + pose_frame_normalized[12]) / 2
@@ -816,17 +772,17 @@ async def main(request: Request, video: UploadFile = File(...)):
 
                     pose_frame_normalized = pose_frame_normalized / scale
 
-                    pose_landmarks_3d.append(pose_frame_normalized.astype(np.float32))
+                    s.pose_landmarks_3d.append(pose_frame_normalized.astype(np.float32))
             
-                    prev_pose_frame = pose_frame.copy()
+                    s.prev_pose_frame = s.pose_frame.copy()
                     if len(frame_buffer) > 0:
-                        inference_neutral_pose_frame = pose_frame[np.newaxis, :, :, np.newaxis]  # minimal fix: shape (1,33,3,1)
+                        inference_neutral_pose_frame = s.pose_frame[np.newaxis, :, :, np.newaxis]  # minimal fix: shape (1,33,3,1)
                         raw_state = neutral_identifier.predict(inference_neutral_pose_frame, verbose=0) # inference on current frame
-                        state = int(raw_state[0][0] > 0.8)
+                        s.state = int(raw_state[0][0] > 0.8)
                     else:
-                        state = 0
+                        s.state = 0
 
-                    if len(frame_buffer) >= seq_len and state == 1:
+                    if len(frame_buffer) >= seq_len and s.state == 1:
 
                         sequence = np.array(frame_buffer[-seq_len:], dtype=np.float32)
                         sequence = sequence[np.newaxis, ...]
@@ -834,25 +790,25 @@ async def main(request: Request, video: UploadFile = File(...)):
                         probs = shot_classifier.predict(sequence, verbose=0)[0]
 
                         label = np.argmax(probs)
-                        output_class = LABELS_INV[label]
+                        s.output_class = LABELS_INV[label]
                         confidence = probs[label]
 
-                        if output_class == "slice_volley" and np.random.rand() <= 0.85:
-                            output_class = "neutral"
+                        if s.output_class == "slice_volley" and np.random.rand() <= 0.85:
+                            s.output_class = "neutral"
                     
-                        if output_class != "neutral":
-                            shot_occurences[output_class] += 1
-                            total_shots_for_percentages += 1 
+                        if s.output_class != "neutral":
+                            s.shot_occurences[s.output_class] += 1
+                            s.total_shots_for_percentages += 1 
 
-                        text = f"{output_class}: {(confidence*100):.2f}%"
+                        text = f"{s.output_class}: {(confidence*100):.2f}%"
 
-                        previous_prediction = text
-                        last_pred_frame = frame_index
+                        s.previous_prediction = text
+                        s.last_pred_frame = s.frame_index
 
                         frame_buffer = frame_buffer[30:]
 
-                    if frame_index - last_pred_frame <= 40:
-                        display_text = previous_prediction
+                    if s.frame_index - s.last_pred_frame <= 40:
+                        display_text = s.previous_prediction
                     else:
                         display_text = "neutral"
 
@@ -867,7 +823,7 @@ async def main(request: Request, video: UploadFile = File(...)):
                             "backhand":    (80,  255, 150),
                             # "slice_volley":(255, 100,  80),
                         }
-                        color = shot_colors.get(output_class, (200, 200, 200))
+                        color = shot_colors.get(s.output_class, (200, 200, 200))
 
                         (text_w, text_h), baseline = cv.getTextSize(display_text, font, font_scale, thickness)
 
@@ -914,17 +870,17 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- ball tracking --------------------------------------------------------------------------------
 
             # ball tracking always happens no matter what
-            if prev_ball_frame is None or frame_index - prev_ball_frame >= 2:
+            if s.prev_ball_frame is None or s.frame_index - s.prev_ball_frame >= 2:
                 ball_results = ball_tracker.predict(
                     source=frame,
                     conf=0.2,
                     save=False,
                     verbose=False,
                 )
-                prev_ball_results = ball_results
-                prev_ball_frame = frame_index
+                s.prev_ball_results = ball_results
+                s.prev_ball_frame = s.frame_index
             else:
-                ball_results = prev_ball_results
+                ball_results = s.prev_ball_results
 
             r = ball_results[0]
             boxes = r.boxes
@@ -943,56 +899,56 @@ async def main(request: Request, video: UploadFile = File(...)):
             # choose detection closest to previous ball position
             moving_ball = None
             if detected_centers:
-                if last_ball_px is None:
+                if s.last_ball_px is None:
                     moving_ball = detected_centers[0]
                 else:
                     moving_ball = min(
                         detected_centers,
-                        key=lambda p: np.hypot(p[0] - last_ball_px[0], p[1] - last_ball_px[1])
+                        key=lambda p: np.hypot(p[0] - s.last_ball_px[0], p[1] - s.last_ball_px[1])
                     )
-                    speed_buffer.append(moving_ball)
+                    s.speed_buffer.append(moving_ball)
 
             if moving_ball:
                 # use savitzky-golay
                 cx, cy = None, None
-                ball_history.append(moving_ball)
+                s.ball_history.append(moving_ball)
 
-                if len(ball_history) > BALL_SMOOTH_WINDOW:
-                    ball_history.pop(0) # sliding window
+                if len(s.ball_history) > s.BALL_SMOOTH_WINDOW:
+                    s.ball_history.pop(0) # sliding window
 
                 # smooth if enough points are present
-                if len(ball_history) >= BALL_SMOOTH_WINDOW:
+                if len(s.ball_history) >= s.BALL_SMOOTH_WINDOW:
                     # seperate x and y
-                    xs = [p[0] for p in ball_history]
-                    ys = [p[1] for p in ball_history]
+                    xs = [p[0] for p in s.ball_history]
+                    ys = [p[1] for p in s.ball_history]
 
                     # apply filter
-                    smooth_xs = savgol_filter(xs, BALL_SMOOTH_WINDOW, BALL_POLY_ORDER)
-                    smooth_ys = savgol_filter(ys, BALL_SMOOTH_WINDOW, BALL_POLY_ORDER)
+                    smooth_xs = savgol_filter(xs, s.BALL_SMOOTH_WINDOW, s.BALL_POLY_ORDER)
+                    smooth_ys = savgol_filter(ys, s.BALL_SMOOTH_WINDOW, s.BALL_POLY_ORDER)
 
                     # take the last smoothed point as the current position
                     cx, cy = int(smooth_xs[-1]), int(smooth_ys[-1])
                 else:
                     cx, cy = moving_ball
 
-                last_ball_px = (cx, cy)
-                trail.append((cx, cy))
-                if len(trail) > MAX_TRAIL_LENGTH:
-                    trail.pop(0)
+                s.last_ball_px = (cx, cy)
+                s.trail.append((cx, cy))
+                if len(s.trail) > s.MAX_TRAIL_LENGTH:
+                    s.trail.pop(0)
 
             if moving_ball: # make trail
                 cx, cy = moving_ball
-                coordinates.append((frame_index, cx, cy))
-                trail.append((cx, cy))
-                if len(trail) > MAX_TRAIL_LENGTH:
-                    trail.pop(0) # move across screen
+                s.coordinates.append((s.frame_index, cx, cy))
+                s.trail.append((cx, cy))
+                if len(s.trail) > s.MAX_TRAIL_LENGTH:
+                    s.trail.pop(0) # move across screen
 
                 # draw box around moving ball
                 cv.rectangle(frame, (cx-5, cy-5), (cx+5, cy+5), (0,255,0), 3)
 
             # draw trail (old -> red, new -> green)
-            for idx, (tx, ty) in enumerate(trail):
-                alpha = idx / len(trail)
+            for idx, (tx, ty) in enumerate(s.trail):
+                alpha = idx / len(s.trail)
                 r = int(255 * (1 - alpha))
                 b = int(255 * (1 - alpha))
                 g = int(255 * alpha)
@@ -1002,7 +958,7 @@ async def main(request: Request, video: UploadFile = File(...)):
 
 # -------------------------------------------------------------------------------- update mini court --------------------------------------------------------------------------------
 
-            if view_type == "top":
+            if s.view_type == "top":
 
                 # draw mini court overlay
                 frame[my:my+mh, mx:mx+mw] = mini_court_overlay[my:my+mh, mx:mx+mw]
@@ -1026,11 +982,11 @@ async def main(request: Request, video: UploadFile = File(...)):
 # -------------------------------------------------------------------------------- speed estimation --------------------------------------------------------------------------------
 
             # speed calculation
-            if view_type == "top":
-                if len(speed_buffer) >= speed_buffer_size:
+            if s.view_type == "top":
+                if len(s.speed_buffer) >= s.speed_buffer_size:
 
-                    final = speed_buffer[-1]
-                    initial = speed_buffer[0]
+                    final = s.speed_buffer[-1]
+                    initial = s.speed_buffer[0]
 
                     # use euclidean distance formula (kind of)
                     # i know the formula is wrong but it works better
@@ -1040,19 +996,19 @@ async def main(request: Request, video: UploadFile = File(...)):
                     # time = len(speed_buffer) / input_fps
                     time = 1
                     velocity_pps = delta / time # velocity calculation with 60 frames, pixels per second
-                    velocity_mps = meters_per_pixel * velocity_pps # convert pps to mps
-                    velocity_mph = velocity_mps * mps_to_mph_conversion_factor # convert mps to mph
+                    velocity_mps = s.meters_per_pixel * velocity_pps # convert pps to mps
+                    velocity_mph = velocity_mps * s.mps_to_mph_conversion_factor # convert mps to mph
                     velocity_mph = round(velocity_mph, 2)
-                    velocities.append(min(velocity_mph, random.choice([105, 110, 115, 120, 125]))) # clamp
+                    s.velocities.append(min(velocity_mph, random.choice([105, 110, 115, 120, 125]))) # clamp
 
-                    prev_velocity = velocity_mph
+                    s.prev_velocity = velocity_mph
                     # speed_buffer = speed_buffer[-40:]
-                    speed_buffer.clear()
+                    s.speed_buffer.clear()
 
                 overlay = frame.copy()
                 try:
                     # determine the displayed velocity
-                    display_velocity = min(prev_velocity, 130) if prev_velocity is not None else min(velocity_mph, 130)
+                    display_velocity = min(s.prev_velocity, 130) if s.prev_velocity is not None else min(velocity_mph, 130)
 
                     # text parameters
                     text = f"Estimated speed (1 second window): {display_velocity} mph"
@@ -1111,27 +1067,27 @@ async def main(request: Request, video: UploadFile = File(...)):
 
 # -------------------------------------------------------------------------------- contact detection --------------------------------------------------------------------------------
             
-            if view_type == "court":
+            if s.view_type == "court":
 
                 score = 0
                 
-                current_audio = get_audio_at_frame(frame_index, audio)
+                current_audio = get_audio_at_frame(s.frame_index, audio)
                 energy = np.sqrt(np.mean(current_audio**2)) # get RMS energy for audio sample
 
                 if energy >= MIN_ENERGY:
                     score += 1
 
-                if score >= 1 and (frame_index - last_hit_frame > COOLDOWN_FRAMES):
-                    last_hit_frame = frame_index
+                if score >= 1 and (s.frame_index - last_hit_frame > COOLDOWN_FRAMES):
+                    last_hit_frame = s.frame_index
                     n_contacts += 1
 
-            pbar.update(1)
+            s.pbar.update(1)
             out.write(frame) # export frame
 
 # -------------------------------------------------------------------------------- save to r2 --------------------------------------------------------------------------------
 
         # save to database/storage
-        r2_key = f"processed/{view_type}_{filename}" # output path in bucket
+        r2_key = f"processed/{s.view_type}_{filename}" # output path in bucket
 
         # test if output video is corrupted
         # only saves if output video is valid
@@ -1171,9 +1127,9 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             print(f"\nn_shots: {n_contacts}\n")
 
-            fh_percent = get_percentage(shot_occurences, "forehand", total_shots_for_percentages)
-            bh_percent = get_percentage(shot_occurences, "backhand", total_shots_for_percentages)
-            so_percent = get_percentage(shot_occurences, "serve_overhead", total_shots_for_percentages)
+            fh_percent = get_percentage(s.shot_occurences, "forehand", s.total_shots_for_percentages)
+            bh_percent = get_percentage(s.shot_occurences, "backhand", s.total_shots_for_percentages)
+            so_percent = get_percentage(s.shot_occurences, "serve_overhead", s.total_shots_for_percentages)
 
             print(f"\nforehand percent: {fh_percent}\n")
 
@@ -1181,16 +1137,16 @@ async def main(request: Request, video: UploadFile = File(...)):
 
             print(f"\nserve_overhead percent: {so_percent}\n")
 
-            print(f"\ntotal shots: {total_shots_for_percentages}\n")
+            print(f"\ntotal shots: {s.total_shots_for_percentages}\n")
 
-            print(f"shot occurences: {shot_occurences}")
-            pose_landmarks_3d = np.array(pose_landmarks_3d)
-            print(f"\n3d pose: {pose_landmarks_3d.shape}\n")
+            print(f"shot occurences: {s.shot_occurences}")
+            s.pose_landmarks_3d = np.array(s.pose_landmarks_3d)
+            print(f"\n3d pose: {s.pose_landmarks_3d.shape}\n")
             
             return {
                 "message": "video processed successfully",
                 "url": public_url,
-                "video_type": view_type,
+                "video_type": s.view_type,
 
                 "n_shots_by_POI": n_contacts,
                 "total_shots": round(n_contacts * 1.8),
@@ -1199,12 +1155,12 @@ async def main(request: Request, video: UploadFile = File(...)):
                 "backhand_percent": bh_percent,
                 "serve_overhead_percent": so_percent,
 
-                "right_wrist_avg": safe_float(np.mean(r_w_velocities) if r_w_velocities else None),
-                "right_wrist_v": [safe_float(vel) for vel in r_w_velocities],
+                "right_wrist_avg": safe_float(np.mean(s.r_w_velocities) if s.r_w_velocities else None),
+                "right_wrist_v": [safe_float(vel) for vel in s.r_w_velocities],
 
-                "pose_landmarks_3d": None if pose_landmarks_3d is None else pose_landmarks_3d.tolist(),
+                "pose_landmarks_3d": None if s.pose_landmarks_3d is None else s.pose_landmarks_3d.tolist(),
 
-                "ball_speeds": [safe_float(vel) for vel in velocities] if len(velocities) > 0 else None,
+                "ball_speeds": [safe_float(vel) for vel in s.velocities] if len(s.velocities) > 0 else None,
             }
                     
         except Exception as e:
@@ -1226,8 +1182,8 @@ async def main(request: Request, video: UploadFile = File(...)):
         if out is not None:
             out.release()
         cv.destroyAllWindows()
-        if pbar is not None:
-            pbar.close()
+        if s.pbar is not None:
+            s.pbar.close()
 
         # delete temporary videos only if they exist
         for path in ["input_path", "output_path", "avi_path"]:
