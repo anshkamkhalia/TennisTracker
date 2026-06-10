@@ -1,5 +1,7 @@
 # 🎾 TennisTracker &nbsp; ![MIT License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
+> WARNING!: Currently the deployed version doesn't have shot classification working properly, but everything else does.
+
 A cross-platform tennis analytics platform that runs a full computer-vision pipeline on uploaded match footage — classifying shots, tracking the ball, estimating speed, and rendering pose data in 3D. Inspired by SwingVision but open, budget-friendly, and works on any camera angle.
 
 ---
